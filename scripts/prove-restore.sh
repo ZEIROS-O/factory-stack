@@ -17,11 +17,13 @@ DUMP="${1:-$(ls -1t "$BACKUP_DIR"/*.sql.gz | head -1)}"
 echo "dump:    $DUMP"
 echo "cluster: 127.0.0.1:$PORT"
 
-# Pull the connection string out of the instance .env.
-URL="$(grep -oE 'postgres(ql)?://[^"'"'"' ]+' "$ENV_FILE" | head -1 || true)"
+# Connection string. A managed deployment sets DATABASE_URL in the instance
+# .env; embedded-postgres does not — @paperclipai/db builds it at runtime with
+# fixed credentials (see dist/migration-runtime.js).
+URL="$(grep -oE 'postgres(ql)?://[^"'"'"' ]+' "$ENV_FILE" 2>/dev/null | head -1 || true)"
 if [ -z "$URL" ]; then
-  echo "FATAL: no postgres:// URL found in $ENV_FILE" >&2
-  exit 1
+  URL="postgres://paperclip:paperclip@127.0.0.1:$PORT/paperclip"
+  echo "conn:    embedded default (no DATABASE_URL in .env)"
 fi
 BASE="${URL%/*}"                     # strip the database name
 PSQL=(psql "$BASE/postgres" -v ON_ERROR_STOP=1 -q -t -A)
