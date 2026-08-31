@@ -70,6 +70,25 @@ test("hydration fails closed when the declared bundle is absent from the manifes
   assert.throws(() => hydrateDeclaredContracts(cfg, root), /manifest/);
 });
 
+test("hydration rejects a bundle role that is not a plain role name (path traversal)", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "factory-hydrate-"));
+  fs.mkdirSync(path.join(root, "instructions/out"), { recursive: true });
+  fs.writeFileSync(path.join(root, "instructions/out/AGENTS.x.md"), "bytes\n");
+  fs.writeFileSync(path.join(root, "instructions/manifest.sha256"),
+    `${hashText("bytes\n").slice("sha256:".length)}  out/AGENTS.x.md\n`);
+  for (const evil of ["../../etc/passwd", "a/b", "HERMES", "x.md", "."]) {
+    const cfg = { agents: [{ name: "A", instructions: { path: "AGENTS.md", bundle: evil } }] };
+    assert.throws(() => hydrateDeclaredContracts(cfg, root), (err) => {
+      assert.ok(err instanceof FactoryError);
+      // Must be DELIBERATE validation, not an incidental ENOENT from the
+      // traversal attempt reaching readFileSync.
+      assert.match(err.message, /instructions\.bundle must be a plain role name/);
+      assert.ok(!/ENOENT|cannot read/.test(err.message), "must be rejected before any file read");
+      return true;
+    }, `bundle=${evil} must be rejected`);
+  }
+});
+
 test("hydration rejects an objective whose issueIdentifier does not match the declaring issue", () => {
   const cfg = {
     issues: [{
