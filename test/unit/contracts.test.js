@@ -7,6 +7,7 @@ const {
   loadContract,
   validateContract,
   verifyObjectiveHashes,
+  loadInstructionManifest,
 } = require("../../lib/contracts");
 
 const ROOT = path.resolve(__dirname, "../..");
@@ -97,4 +98,52 @@ test("AssessmentV1 requires one structured criterion verdict and argv results", 
   assert.doesNotThrow(() => validateContract("AssessmentV1", assessment));
   delete assessment.criteria[0].verdict;
   assert.throws(() => validateContract("AssessmentV1", assessment), /criteria/);
+});
+
+// --- fail-closed guards -----------------------------------------------------
+// These are the guards this repo exists to keep honest. A positive-only test
+// cannot tell a working guard from an absent one.
+
+test("verifyObjectiveHashes rejects a tampered objective and a tampered criteria set", () => {
+  const file = path.join(ROOT, "contracts/objectives/ZEI-1.json");
+
+  // Change content the objective hash covers, leave the recorded hash alone.
+  const tamperedBody = loadContract(file, "ObjectiveEnvelopeV1");
+  tamperedBody.limits.costCeilingUsd = 40;
+  assert.throws(() => verifyObjectiveHashes(tamperedBody), /objectiveHash does not match/);
+
+  // Change an acceptance criterion: criteriaHash must fail first.
+  const tamperedCriteria = loadContract(file, "ObjectiveEnvelopeV1");
+  tamperedCriteria.acceptanceCriteria[0].command.argv.push("--exitfirst");
+  assert.throws(() => verifyObjectiveHashes(tamperedCriteria), /criteriaHash does not match/);
+
+  // A forged recorded hash must not be accepted either.
+  const forged = loadContract(file, "ObjectiveEnvelopeV1");
+  forged.objectiveHash = "sha256:" + "0".repeat(64);
+  assert.throws(() => verifyObjectiveHashes(forged), /objectiveHash does not match/);
+});
+
+test("loadInstructionManifest fails closed on a malformed line and on a duplicate entry", () => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const write = (text) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "factory-manifest-"));
+    fs.mkdirSync(path.join(root, "instructions"), { recursive: true });
+    fs.writeFileSync(path.join(root, "instructions", "manifest.sha256"), text);
+    return root;
+  };
+  const good = `${"a".repeat(64)}  out/AGENTS.engineer.md\n`;
+
+  assert.deepEqual(loadInstructionManifest(write(good)), {
+    "out/AGENTS.engineer.md": "sha256:" + "a".repeat(64),
+  });
+
+  // Truncated hash — must not be silently skipped.
+  assert.throws(() => loadInstructionManifest(write(`${"a".repeat(63)}  out/AGENTS.engineer.md\n`)),
+    /malformed line/);
+  // Missing filename.
+  assert.throws(() => loadInstructionManifest(write(`${"a".repeat(64)}\n`)), /malformed line/);
+  // Two entries for one file: last-wins would let a stale hash authorize a bundle.
+  assert.throws(() => loadInstructionManifest(write(
+    good + `${"b".repeat(64)}  out/AGENTS.engineer.md\n`)), /twice/);
 });
