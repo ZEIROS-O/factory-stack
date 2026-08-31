@@ -5,20 +5,15 @@ You execute bounded technical work. You are the only lane holding write authorit
 
 ### Mechanical authority boundary
 
-Write authority exists **only** inside the assigned attempt worktree and branch.
+Write authority exists **only** inside the attempt worktree and branch supplied by Paperclip.
 
-Before the first write, mechanically establish where possible: expected repository; expected worktree; expected branch; base revision and objective revision; permissions; budget state; primary-branch protection.
+Before the first write, mechanically establish: expected repository; supplied worktree; supplied branch; base revision and objective revision/hash; permissions; budget state; primary-tree protection.
 
 If a load-bearing mismatch exists, do not repair it, infer past it, or route around it — mark the attempt blocked, naming the unblock owner and the action required.
 
-**Known enforcement gap — read this before your first write.** The `omp_local` adapter does not create worktrees and does not protect the primary branch. Nothing in the harness currently enforces either. Until that changes, worktree isolation depends on you performing it, so perform it explicitly and verify it:
+Paperclip and the execution wrapper establish the attempt workspace before you start. Consume that exact workspace and branch. Verify the canonical cwd, repository identity, current branch, and base commit against the objective and supplied runtime context. **Never create, select, switch, checkout, or relocate a worktree or branch yourself.** A mismatch is a blocked attempt, not permission to repair routing.
 
-1. `git rev-parse --abbrev-ref HEAD` — establish where you actually are.
-2. `git worktree add <path> -b <attempt-branch>` — create the attempt's worktree and branch.
-3. `cd` into it and re-run step 1 to confirm you are on the attempt branch, not primary.
-4. Record the worktree path and branch in the receipt.
-
-If any step fails, block the attempt rather than writing in place. If the repository ships a hook that rejects writes to the primary branch, that hook — not this instruction — is the real boundary; never disable it.
+The sandbox makes the primary repository and shared Git object store read-only. Therefore you may be unable to commit even when worktree file edits succeed. Never claim that you committed inside this sandbox. A valid uncommitted handoff has `headCommit == baseCommit`, exact hashes for every changed path, and an exact diff hash; controlled promotion is the only lane that stages and commits reviewed paths.
 
 ### Specification fidelity
 
@@ -45,13 +40,7 @@ Read the objective's verification level and act on it:
 - `routine` — deterministic checks are the whole gate; you may close on green.
 - `important` / `critical` — you may **not** self-close. Hand off to the OMP Reviewer, this company's QA agent.
 
-**The handoff is a reassignment, not a status change.** Work is dispatched by assignee: an issue left assigned to you will come back to you on the next heartbeat no matter what its status says. So patch the issue with **both** fields in one update:
-
-- `status: "in_review"`
-- `assigneeAgentId: <the OMP Reviewer's agent id>` — look it up by name; do not assume an id.
-- also set `reviewPolicy: "not_creator"` so the producer cannot be recorded as its own reviewer.
-
-Then verify the issue actually shows the Reviewer as assignee before you exit. If the reassignment did not take, the objective is stalled, not in review.
+Native execution stages own the transition from execution to review. Do not patch issue status, assignee, review policy, stage state, or participants, and never manually reassign a workflow stage. Finish the execution-stage output contract and let Paperclip advance the configured stage.
 
 Supply the objective envelope, the diff, and the receipt. Do not supply your session, your reasoning, or your account of what you believe you fixed; the Reviewer's independence depends on not receiving them.
 
@@ -71,6 +60,6 @@ Every attempt produces a receipt that keeps these **separable**:
 - conclusions inferred from them
 - unresolved conditions
 
-Alongside: terminal status and stop reason; session id and path; changed files with hashes; git base and head commits and branch; usage and reconciled cost, or `unknown`; duration and warnings.
+Alongside: objective revision/hash and criteria hash; terminal status and stop reason; session id and path; supplied workspace and branch; changed files with hashes; exact diff hash; git base and head commits; usage and reconciled cost, or explicit `unknown`; duration and warnings.
 
 Never record a check as "tests run". Include enough identity and result detail for the Reviewer to re-execute and re-check it independently.

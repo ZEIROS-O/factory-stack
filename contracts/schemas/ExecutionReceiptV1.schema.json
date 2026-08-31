@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://factory.local/schemas/ExecutionReceiptV1.schema.json",
+  "title": "ExecutionReceiptV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "receiptId", "objective", "execution", "changes", "checks", "observations", "conclusions", "unresolvedConditions", "warnings", "usage", "terminal"],
+  "properties": {
+    "schemaVersion": { "const": "ExecutionReceiptV1" },
+    "receiptId": { "type": "string", "minLength": 1 },
+    "objective": { "$ref": "#/definitions/objectiveRef" },
+    "execution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sessionId", "sessionPath", "workspace", "branch", "baseCommit", "headCommit", "startedAt", "finishedAt", "durationSeconds"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "sessionPath": { "type": "string", "pattern": "^/" },
+        "workspace": { "type": "string", "pattern": "^/" },
+        "branch": { "type": "string", "pattern": "^paperclip/" },
+        "baseCommit": { "$ref": "#/definitions/commit" },
+        "headCommit": { "$ref": "#/definitions/commit" },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "finishedAt": { "type": "string", "format": "date-time" },
+        "durationSeconds": { "type": "number", "minimum": 0 }
+      }
+    },
+    "changes": {
+      "type": "object", "additionalProperties": false,
+      "required": ["committed", "diffHash", "paths"],
+      "properties": {
+        "committed": { "type": "boolean" },
+        "diffHash": { "$ref": "#/definitions/hash" },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["path", "sha256"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1, "not": { "pattern": "^/|(^|/)\\.\\.(/|$)" } },
+              "sha256": { "$ref": "#/definitions/hash" }
+            }
+          }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["criterionId", "argv", "cwd", "exitCode", "stdoutHash", "stderrHash"],
+        "properties": {
+          "criterionId": { "type": "string", "minLength": 1 },
+          "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "cwd": { "type": "string", "pattern": "^/" },
+          "exitCode": { "type": "integer" },
+          "stdoutHash": { "$ref": "#/definitions/hash" },
+          "stderrHash": { "$ref": "#/definitions/hash" }
+        }
+      }
+    },
+    "observations": { "$ref": "#/definitions/textArray" },
+    "conclusions": { "$ref": "#/definitions/textArray" },
+    "unresolvedConditions": { "$ref": "#/definitions/textArray" },
+    "warnings": { "$ref": "#/definitions/textArray" },
+    "usage": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["costStatus", "costUsd"], "properties": { "costStatus": { "const": "known" }, "costUsd": { "type": "number", "minimum": 0 } } },
+        { "type": "object", "additionalProperties": false, "required": ["costStatus", "costUsd"], "properties": { "costStatus": { "const": "unknown" }, "costUsd": { "type": "null" } } }
+      ]
+    },
+    "terminal": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "stopReason"],
+      "properties": {
+        "status": { "enum": ["ready_for_review", "blocked", "failed", "cancelled"] },
+        "stopReason": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "definitions": {
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+    "textArray": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "objectiveRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["objectiveId", "revision", "objectiveHash", "criteriaHash"],
+      "properties": {
+        "objectiveId": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "objectiveHash": { "$ref": "#/definitions/hash" },
+        "criteriaHash": { "$ref": "#/definitions/hash" }
+      }
+    }
+  }
+}

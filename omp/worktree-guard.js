@@ -4,8 +4,7 @@
 //
 // The boundary is ops/omp-bwrap.sh, which mounts the operator's primary tree and
 // the repository's shared git metadata read-only at the kernel level. That holds
-// whatever the agent does and whatever this hook decides, and it is proven by
-// test/integration/sandbox.test.js. An in-process hook can never be a security
+// whatever the agent does and whatever this hook decides. An in-process hook can never be a security
 // boundary against the process it lives inside: the same runtime that loads it
 // can, in principle, route around it.
 //

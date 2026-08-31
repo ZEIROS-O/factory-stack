@@ -5,6 +5,7 @@ const { PaperclipApi } = require("../../lib/api");
 const { FactoryError, hashValue } = require("../../lib/util");
 const { compareExecutionPolicy, compareWorkspaceStrategy } = require("../../lib/semdiff");
 const { validate, expandVars, stripComments } = require("../../lib/config");
+const { planContractDocuments, planAgentInstructions } = require("../../lib/plan");
 
 // A fake Paperclip. `drop` names fields the server silently discards while still
 // answering 200 — the exact behaviour this system exists to catch.
@@ -209,4 +210,60 @@ test("config expansion resolves ${FACTORY_ROOT} and strips $comment before hashi
     { FACTORY_ROOT: "/root" });
   assert.deepEqual(out, { a: "/root/x", b: { c: 1 } });
   assert.throws(() => expandVars({ a: "${NOPE}" }, {}), /unknown variable/);
+});
+
+test("objective document reconciliation plans an optimistic PUT with exact body readback", () => {
+  const objectiveDocument = {
+    key: "spec", title: "ZEI-1 immutable objective", format: "markdown",
+    body: "# objective\n\nrevision 1\n", bodyHash: "sha256:" + "a".repeat(64),
+    changeSummary: "Install objective revision 1",
+    objective: {
+      revision: 1, objectiveHash: "sha256:" + "b".repeat(64),
+      criteriaHash: "sha256:" + "c".repeat(64),
+    },
+  };
+  const cfg = { issues: [{ identifier: "ZEI-1", objectiveDocument }] };
+  const snap = {
+    issues: { "ZEI-1": { id: "issue-1" } },
+    issueDocuments: { "ZEI-1": { spec: {
+      title: "old", format: "markdown", latestBody: "old", latestRevisionId: "revision-1",
+    } } },
+  };
+  const actions = [];
+  planContractDocuments(cfg, snap, actions);
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0].method, "PUT");
+  assert.equal(actions[0].writePath, "/api/issues/issue-1/documents/spec");
+  assert.equal(actions[0].body.baseRevisionId, "revision-1");
+  assert.deepEqual(actions[0].expect.map((x) => x.path), ["title", "format", "latestBody", "latestRevisionId"]);
+});
+
+test("instruction reconciliation compares exact compiled bytes and plans no action on a hash match", () => {
+  const compiled = "platform + doctrine + role\n";
+  const cfg = { agents: [{ name: "OMP Engineer", instructions: { path: "AGENTS.md", content: compiled, sha256: "sha256:" + "b".repeat(64) } }] };
+  const snap = { agents: { "OMP Engineer": { id: "agent-1" } }, agentInstructions: { "OMP Engineer": { path: "AGENTS.md", content: compiled } } };
+  const actions = [];
+  planAgentInstructions(cfg, snap, actions);
+  assert.deepEqual(actions, []);
+  snap.agentInstructions["OMP Engineer"].content = "stale";
+  planAgentInstructions(cfg, snap, actions);
+  assert.equal(actions[0].method, "PUT");
+  assert.deepEqual(actions[0].expect.map((x) => x.path), ["path", "content"]);
+});
+
+test("document and instruction upserts fail on the broader 200-and-do-nothing API class", async () => {
+  const state = { title: "old", format: "markdown", latestBody: "old", latestRevisionId: "r1" };
+  const calls = [];
+  const fetchImpl = async (url, opts = {}) => {
+    const method = opts.method ?? "GET";
+    calls.push(method);
+    return { ok: true, status: 200, text: async () => JSON.stringify(state) };
+  };
+  await assert.rejects(() => new PaperclipApi("http://x", { fetch: fetchImpl }).mutate({
+    readPath: "/api/issues/i/documents/spec", writePath: "/api/issues/i/documents/spec", method: "PUT",
+    body: { title: "new", format: "markdown", body: "new", changeSummary: "change", baseRevisionId: "r1" },
+    allow: ["title", "format", "body", "changeSummary", "baseRevisionId"],
+    expect: [{ path: "latestBody", value: "new" }],
+  }), /200-and-do-nothing/);
+  assert.deepEqual(calls, ["GET", "PUT", "GET"]);
 });

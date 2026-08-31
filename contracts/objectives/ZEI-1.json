@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "ObjectiveEnvelopeV1",
+  "objectiveId": "ZEI-1",
+  "issueIdentifier": "ZEI-1",
+  "revision": 1,
+  "objectiveHash": "sha256:6adca23984d4475c4633f4a4cd6cea42ba0c378c0040b85cfbf7760918e4f6d4",
+  "criteriaHash": "sha256:3558fc22c0384a09ef0c33adf4b16e5946cd208d5472c7aaba684f153590e6a2",
+  "title": "Repair the five bounded X-Bookmarks bin defects",
+  "originalRequest": "Implement the five defects and six deterministic acceptance checks preserved in salvage/ZEI-1/ZEI-1-remediation-spec.md and salvage/ZEI-1/test_bin_defects.py without modifying the X-Bookmarks primary tree.",
+  "repository": {
+    "path": "/home/lucascoh/X-Bookmarks",
+    "baseCommit": "3cb8238",
+    "branch": "paperclip/ZEI-1"
+  },
+  "permissions": {
+    "filesystem": {
+      "read": ["."],
+      "write": ["bin/coverage.py", "bin/make_batches.py", "bin/validate_claims.py", "bin/view.py", "tests/test_bin_defects.py"]
+    },
+    "network": "provider_only",
+    "externalEffects": []
+  },
+  "limits": {
+    "wallClockMinutes": 45,
+    "costCeilingUsd": 4,
+    "outerFactoryCostCeilingUsd": 5,
+    "maxReviewRounds": 2
+  },
+  "verificationLevel": "important",
+  "expectedOutputs": [
+    "Root-relative batch and coverage CLI behavior",
+    "Flagged claims excluded from the recall floor",
+    "Resolved excerpt metadata persisted on valid claims",
+    "Justified skip records persisted to skips.jsonl",
+    "Requested claim fields rendered without changing default output",
+    "Regression tests installed as tests/test_bin_defects.py"
+  ],
+  "constraints": [
+    "Consume the workspace and branch supplied by Paperclip; do not create, select, or switch a worktree or branch.",
+    "Do not modify /home/lucascoh/X-Bookmarks or any other primary worktree.",
+    "Do not read old bookmark bodies or derived corpus material to implement or verify these bounded bin defects.",
+    "Do not manually reassign the issue or its native execution stages.",
+    "The Engineer sandbox cannot commit; head may equal base when the receipt carries exact changed-path hashes and diff hash."
+  ],
+  "acceptanceCriteria": [
+    {
+      "id": "ZEI-1-AC-01",
+      "requirement": "The complete repository test suite passes.",
+      "command": { "argv": ["python3", "-m", "pytest", "-q"], "cwd": "." }
+    },
+    {
+      "id": "ZEI-1-AC-02",
+      "requirement": "The --root batch and coverage paths operate on the supplied fixture root and emit root-relative note paths.",
+      "command": { "argv": ["python3", "-m", "pytest", "-q", "tests/test_bin_defects.py::TestMakeBatchesRoot", "tests/test_bin_defects.py::TestCoverageRoot"], "cwd": "." }
+    },
+    {
+      "id": "ZEI-1-AC-03",
+      "requirement": "Flagged records never credit the recall floor while valid records still do.",
+      "command": { "argv": ["python3", "-m", "pytest", "-q", "tests/test_bin_defects.py::TestFlaggedDoesNotClearRecallFloor"], "cwd": "." }
+    },
+    {
+      "id": "ZEI-1-AC-04",
+      "requirement": "Valid claims persist excerpt, excerpt_span, and excerpt_normalized through claims.jsonl.",
+      "command": { "argv": ["python3", "-m", "pytest", "-q", "tests/test_bin_defects.py::TestExcerptSpanPersisted"], "cwd": "." }
+    },
+    {
+      "id": "ZEI-1-AC-05",
+      "requirement": "skips.jsonl contains exactly the justified skips and excludes unjustified skips.",
+      "command": { "argv": ["python3", "-m", "pytest", "-q", "tests/test_bin_defects.py::TestSkipsAreDumped"], "cwd": "." }
+    },
+    {
+      "id": "ZEI-1-AC-06",
+      "requirement": "The view field passthrough emits requested values, tolerates absent optional fields, and preserves default output.",
+      "command": { "argv": ["python3", "-m", "pytest", "-q", "tests/test_bin_defects.py::TestViewFieldsPassthrough"], "cwd": "." }
+    }
+  ]
+}

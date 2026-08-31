@@ -84,6 +84,10 @@
       "name": "OMP Engineer",
       "role": "engineer",
       "adapterType": "omp_local",
+      "instructions": {
+        "$comment": "Binds this agent to the compiled instructions/out/AGENTS.engineer.md whose sha256 is pinned by the committed instructions/manifest.sha256. Load verifies the bytes against the manifest; factory apply reconciles the live server copy with exact readback.",
+        "path": "AGENTS.md", "bundle": "engineer"
+      },
       "adapterConfig": {
         "command": "${FACTORY_ROOT}/ops/omp-bwrap.sh",
         "model": "anthropic/claude-opus-5",
@@ -96,10 +100,15 @@
         "graceSec": 5
       }
     },
+
     {
       "name": "OMP Reviewer",
       "role": "reviewer",
       "adapterType": "omp_local",
+      "instructions": {
+        "$comment": "Binds this agent to the compiled instructions/out/AGENTS.reviewer.md whose sha256 is pinned by the committed instructions/manifest.sha256. Load verifies the bytes against the manifest; factory apply reconciles the live server copy with exact readback.",
+        "path": "AGENTS.md", "bundle": "reviewer"
+      },
       "adapterConfig": {
         "$comment": [
           "paperclip_review is the Reviewer's ONLY write-capable tool. It reaches",
@@ -128,6 +137,15 @@
       "goal": "autonomy",
       "reviewPolicy": "not_creator",
       "assignee": "OMP Engineer",
+
+      "$comment_objectiveDocument": "The immutable objective is the versioned ObjectiveEnvelopeV1 at contracts/objectives/ZEI-1.json. Load verifies its schema, hashes, and issue binding, and renders the document body that factory apply upserts as issue document 'spec' with optimistic concurrency (baseRevisionId) and exact readback. The document is authoritative; the objective changes only by a new revision with new hashes.",
+      "objectiveDocument": {
+        "key": "spec",
+        "title": "ZEI-1 immutable objective (ObjectiveEnvelopeV1)",
+        "format": "markdown",
+        "sourceFile": "${FACTORY_ROOT}/contracts/objectives/ZEI-1.json",
+        "changeSummary": "Install objective revision 1 (hash-bound)"
+      },
 
       "executionWorkspacePreference": "isolated_workspace",
       "executionWorkspaceSettings": {

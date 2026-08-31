@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compile src/ into three SELF-CONTAINED AGENTS.md files and push them.
+# Compile src/ into three SELF-CONTAINED AGENTS.md files.
 #
 #   delivered AGENTS.md = platform contract (verbatim) + shared doctrine + role section
 #
@@ -7,45 +7,24 @@
 # Silent non-delivery of a second file is unacceptable, so the doctrine is
 # duplicated into all three outputs at build time instead of referenced.
 #
-# GOTCHA: `paperclipai agent update --payload-json '{"instructionsBundle":...}'`
-# returns 200 and silently does nothing. `instructions-file:put` is the only
-# write path that actually persists. Do not "simplify" this back.
+# This compiler NEVER publishes. Live publication is a declarative factory
+# reconciliation action with exact readback and an immutable receipt.
 set -euo pipefail
 
 # `>/dev/null` because a set CDPATH makes `cd` echo the target and corrupt $D.
 D="$(cd "$(dirname "$0")" > /dev/null && pwd)"
 S="$D/src"
 O="$D/out"
-PC="$D/../node_modules/.bin/paperclipai"
-mkdir -p "$O"
+M="$D/manifest.sha256"
+mode="${1:---write}"
+case "$mode" in --write|--check) ;; *) echo "usage: $0 [--write|--check]" >&2; exit 2 ;; esac
 
-# Agent ids are resolved by name at run time rather than hardcoded, so this
-# survives a rebuilt instance.
-COMPANY="${PAPERCLIP_COMPANY_ID:-$("$PC" company list --json | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].id')}"
-AGENTS_JSON="$("$PC" agent list --company-id "$COMPANY" --json)"
-
-agent_id() {
-  node -pe '
-    const list = JSON.parse(process.env.AGENTS_JSON);
-    const arr = Array.isArray(list) ? list : (list.agents || []);
-    const hit = arr.find(a => a.name === process.argv[1]);
-    if (!hit) { console.error(`no agent named ${process.argv[1]}`); process.exit(1); }
-    hit.id
-  ' "$1"
-}
-export AGENTS_JSON
-
-declare -A NAMES=(
-  [hermes]="Hermes Generalist"
-  [engineer]="OMP Engineer"
-  [reviewer]="OMP Reviewer"
-)
+roles=(hermes engineer reviewer)
 
 contract_bytes="$(wc -c < "$S/_platform_contract.md")"
 
-for role in hermes engineer reviewer; do
-  out="$O/AGENTS.$role.md"
-  cat "$S/_platform_contract.md" "$S/_doctrine.md" "$S/_role_$role.md" > "$out"
+verify_bundle() {
+  local role="$1" out="$2"
 
   # The platform contract must survive byte-for-byte as the file's prefix.
   if ! head -c "$contract_bytes" "$out" | cmp -s - "$S/_platform_contract.md"; then
@@ -59,9 +38,44 @@ for role in hermes engineer reviewer; do
     exit 1
   fi
 
-  id="$(agent_id "${NAMES[$role]}")"
-  "$PC" agent instructions-file:put "$id" \
-    --path AGENTS.md --content-file "$out" --json > /dev/null
+}
 
-  echo "$role: $(wc -c < "$out") bytes -> ${NAMES[$role]}"
+if [[ "$mode" == "--check" ]]; then
+  [[ -d "$O" && -f "$M" ]] || { echo "instruction outputs or manifest are missing; run compile.sh --write" >&2; exit 1; }
+  for role in "${roles[@]}"; do
+    out="$O/AGENTS.$role.md"
+    [[ -f "$out" ]] || { echo "instruction output missing: $out" >&2; exit 1; }
+    if ! cmp -s <(cat "$S/_platform_contract.md" "$S/_doctrine.md" "$S/_role_$role.md") "$out"; then
+      echo "instruction bundle drift: out/AGENTS.$role.md is out of date" >&2
+      exit 1
+    fi
+    verify_bundle "$role" "$out"
+  done
+  if ! cmp -s <(
+    for role in "${roles[@]}"; do
+      sha256sum "$O/AGENTS.$role.md" | sed "s#  $O/#  out/#"
+    done
+  ) "$M"; then
+    echo "instruction manifest mismatch" >&2
+    exit 1
+  fi
+  echo "instructions: generated bundles and manifest match"
+  exit 0
+fi
+
+mkdir -p "$O"
+tmp="$(mktemp -d)"
+trap 'rm -rf -- "$tmp"' EXIT
+for role in "${roles[@]}"; do
+  out="$tmp/AGENTS.$role.md"
+  cat "$S/_platform_contract.md" "$S/_doctrine.md" "$S/_role_$role.md" > "$out"
+  verify_bundle "$role" "$out"
 done
+for role in "${roles[@]}"; do
+  install -m 0644 "$tmp/AGENTS.$role.md" "$O/AGENTS.$role.md"
+done
+for role in "${roles[@]}"; do
+  sha256sum "$O/AGENTS.$role.md" | sed "s#  $O/#  out/#"
+done > "$tmp/manifest.sha256"
+install -m 0644 "$tmp/manifest.sha256" "$M"
+echo "instructions: wrote ${#roles[@]} deterministic bundles and manifest"
