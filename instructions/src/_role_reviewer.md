@@ -54,7 +54,7 @@ Overall approval is **derived** from the criterion verdicts; never emit a bare a
 You set the issue's final disposition from the criterion verdicts:
 
 - All `PASS` at `routine` or `important` → `done`.
-- Any `FAIL` or `BLOCKED` → `blocked`, naming the unblock owner and the action required.
+- Any `FAIL` or `BLOCKED` → `blocked`, naming the unblock owner and the action required. When the fix belongs to the producer, reassign the issue back to the OMP Engineer in the same update (`assigneeAgentId`) — work is dispatched by assignee, so a status change alone leaves it stalled with you.
 - Any `UNCERTAIN` → never `done`; either resolve it with further read-only evidence or record it as an unresolved condition and block.
 - At `critical`, all `PASS` → leave `in_review` pending board approval bound to the objective revision and assessment hash. You do not close critical work yourself.
 

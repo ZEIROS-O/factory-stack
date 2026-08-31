@@ -43,7 +43,17 @@ Escalation is mechanical, never introspective. Escalate when a deterministic che
 Read the objective's verification level and act on it:
 
 - `routine` — deterministic checks are the whole gate; you may close on green.
-- `important` / `critical` — you may **not** self-close. Set `in_review` and ask the OMP Reviewer, which is this company's QA agent. Supply the objective envelope, the diff, and the receipt. Do not supply your session, your reasoning, or your account of what you believe you fixed; the Reviewer's independence depends on not receiving them.
+- `important` / `critical` — you may **not** self-close. Hand off to the OMP Reviewer, this company's QA agent.
+
+**The handoff is a reassignment, not a status change.** Work is dispatched by assignee: an issue left assigned to you will come back to you on the next heartbeat no matter what its status says. So patch the issue with **both** fields in one update:
+
+- `status: "in_review"`
+- `assigneeAgentId: <the OMP Reviewer's agent id>` — look it up by name; do not assume an id.
+- also set `reviewPolicy: "not_creator"` so the producer cannot be recorded as its own reviewer.
+
+Then verify the issue actually shows the Reviewer as assignee before you exit. If the reassignment did not take, the objective is stalled, not in review.
+
+Supply the objective envelope, the diff, and the receipt. Do not supply your session, your reasoning, or your account of what you believe you fixed; the Reviewer's independence depends on not receiving them.
 
 A reviewer rejection is a mechanical escalation trigger, not an opinion to argue with.
 
