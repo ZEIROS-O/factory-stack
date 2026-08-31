@@ -1,0 +1,185 @@
+{
+  "$comment": [
+    "Declarative desired state for the factory. `factory apply` makes the live",
+    "Paperclip instance match this file; it is the only sanctioned way to mutate",
+    "the control plane. The ad-hoc scripts/apply-*.sh are superseded evidence.",
+    "",
+    "IDENTIFIERS: everything is resolved by stable name (company name, project",
+    "name, agent name, issue identifier). No database UUID appears in this file.",
+    "A rebuilt instance re-resolves cleanly; a copied UUID would silently target",
+    "the wrong row or nothing at all.",
+    "",
+    "${FACTORY_ROOT} expands to the repo root of the running CLI, so the same",
+    "config is correct from the primary tree and from a worktree."
+  ],
+  "version": 1,
+
+  "api": { "url": "http://127.0.0.1:3100" },
+
+  "pins": {
+    "$comment": "Asserted, not installed. `factory status` fails if any drifts.",
+    "paperclipai": "2026.824.1",
+    "@zhafron/paperclip-omp-adapter": "0.1.3",
+    "omp": "18.0.10"
+  },
+
+  "instance": {
+    "experimental": {
+      "$comment": [
+        "enableIsolatedWorkspaces MUST be true. With it off the server DELETES",
+        "executionWorkspaceId / executionWorkspacePreference / executionWorkspaceSettings",
+        "from issue create and update and returns 200 with the unchanged issue",
+        "(services/issues.js:5312, :5610, :5850); it is also the dispatch-time gate",
+        "at services/heartbeat.js:10677. Silent failure, not an error.",
+        "",
+        "enableWorktreeRunExecution MUST be false. Despite the name it is unrelated",
+        "to agent execution workspaces: it arms only when the Paperclip SERVER runs",
+        "inside a worktree (PAPERCLIP_IN_WORKTREE). Enabling it here changes server",
+        "behaviour for no benefit."
+      ],
+      "enableIsolatedWorkspaces": true,
+      "enableWorktreeRunExecution": false
+    }
+  },
+
+  "company": { "name": "ZEIROS" },
+
+  "goals": [
+    {
+      "key": "autonomy",
+      "titlePrefix": "Build the mind, capabilities, systems, assets, and leverage required"
+    }
+  ],
+
+  "projects": [
+    {
+      "name": "X-Bookmarks",
+      "goals": ["autonomy"],
+      "repoPath": "/home/lucascoh/X-Bookmarks",
+      "description": "X-Bookmarks. Agent work runs in git worktrees under /home/lucascoh/.paperclip/worktrees. The primary tree belongs to the operator.",
+      "executionWorkspacePolicy": {
+        "enabled": true,
+        "defaultMode": "isolated_workspace",
+        "allowIssueOverride": true,
+        "workspaceStrategy": {
+          "type": "git_worktree",
+          "branchTemplate": "paperclip/{{issue.identifier}}",
+          "worktreeParentDir": "/home/lucascoh/.paperclip/worktrees/X-Bookmarks"
+        }
+      },
+      "workspaces": [
+        {
+          "name": "primary",
+          "sourceType": "local_path",
+          "cwd": "/home/lucascoh/X-Bookmarks",
+          "defaultRef": "main",
+          "isPrimary": true
+        }
+      ]
+    }
+  ],
+
+  "agents": [
+    {
+      "name": "OMP Engineer",
+      "role": "engineer",
+      "adapterType": "omp_local",
+      "adapterConfig": {
+        "command": "${FACTORY_ROOT}/ops/omp-bwrap.sh",
+        "model": "anthropic/claude-opus-5",
+        "thinking": "high",
+        "approvalMode": "yolo",
+        "autoApprove": true,
+        "configFiles": "${FACTORY_ROOT}/omp/engineer.policy.yml",
+        "hooks": "${FACTORY_ROOT}/omp/worktree-guard.js",
+        "timeoutSec": 1800,
+        "graceSec": 5
+      }
+    },
+    {
+      "name": "OMP Reviewer",
+      "role": "reviewer",
+      "adapterType": "omp_local",
+      "adapterConfig": {
+        "$comment": [
+          "paperclip_review is the Reviewer's ONLY write-capable tool. It reaches",
+          "the run as a custom tool inside the plugin directory below, and must",
+          "also appear in `tools` because that list is an allowlist.",
+          "The Reviewer deliberately has no bash and no write/edit."
+        ],
+        "command": "${FACTORY_ROOT}/ops/omp-bwrap.sh",
+        "model": "openai-codex/gpt-5.6-sol",
+        "thinking": "xhigh",
+        "approvalMode": "yolo",
+        "autoApprove": true,
+        "tools": "read,grep,glob,ast-grep,lsp,todo,paperclip_review",
+        "configFiles": "${FACTORY_ROOT}/omp/reviewer.policy.yml",
+        "pluginDirs": "${FACTORY_ROOT}/omp/plugins/paperclip-review",
+        "timeoutSec": 1800,
+        "graceSec": 5
+      }
+    }
+  ],
+
+  "issues": [
+    {
+      "identifier": "ZEI-1",
+      "project": "X-Bookmarks",
+      "goal": "autonomy",
+      "reviewPolicy": "not_creator",
+      "assignee": "OMP Engineer",
+
+      "executionWorkspacePreference": "isolated_workspace",
+      "executionWorkspaceSettings": {
+        "$comment": [
+          "THE FULL STRATEGY, ATOMICALLY. execution-workspace-policy.js:275 resolves",
+          "  issueSettings.workspaceStrategy ?? projectPolicy.workspaceStrategy",
+          "with `??`, NOT a merge. A partial issue strategy therefore REPLACES the",
+          "project's and silently drops branchTemplate and worktreeParentDir, landing",
+          "the run on branch `ZEI-1-<slug>` inside `/home/lucascoh/X-Bookmarks/.paperclip/worktrees`",
+          "— untracked noise in the operator's own repo. Never write a partial strategy here."
+        ],
+        "mode": "isolated_workspace",
+        "workspaceStrategy": {
+          "type": "git_worktree",
+          "baseRef": "feat/new-bookmarks-snapshot",
+          "branchTemplate": "paperclip/{{issue.identifier}}",
+          "worktreeParentDir": "/home/lucascoh/.paperclip/worktrees/X-Bookmarks"
+        }
+      },
+
+      "executionPolicy": {
+        "mode": "normal",
+        "stages": [
+          { "type": "review",   "approvalsNeeded": 1, "participants": [{ "type": "agent", "agent": "OMP Reviewer" }] },
+          { "type": "approval", "approvalsNeeded": 1, "participants": [{ "type": "user",  "user": "operator" }] }
+        ]
+      },
+
+      "limits": {
+        "$comment": [
+          "45 minutes is HARD: it reaches the run as adapterConfig.timeoutSec/maxTime.",
+          "$4 is a GATE, not a hard stop: Paperclip budget scopes are company/agent/project",
+          "only (POST /api/companies/{id}/budgets/policies — no issue scope), so no",
+          "per-issue ceiling exists to set. The factory enforces it by refusing to",
+          "promote a run whose reported cost exceeded it. The hard stops behind it are",
+          "the Engineer's $40 agent budget and the provider-side OpenRouter cap.",
+          "The $5 factory-wide figure is an outer bound and never relaxes this."
+        ],
+        "wallClockMinutes": 45,
+        "costCeilingUsd": 4.0,
+        "maxReviewRounds": 2
+      },
+
+      "assigneeAdapterOverrides": {
+        "adapterConfig": { "timeoutSec": 2700, "maxTime": "45m" }
+      }
+    }
+  ],
+
+  "operator": {
+    "$comment": "The human who owns the approval stage and every escalation.",
+    "key": "operator",
+    "memberEmail": "local@paperclip.local"
+  }
+}

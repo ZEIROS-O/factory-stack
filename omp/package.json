@@ -1,0 +1,4 @@
+{
+  "//": "Scopes ESM to omp/ only. The repo root is \"type\": \"commonjs\", but OMP hook modules must be ESM (export default factory). Keeping the .js extension matters: OMP's extension loader discovers .ts/.js.",
+  "type": "module"
+}

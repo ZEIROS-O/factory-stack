@@ -1,0 +1,64 @@
+# OMP Engineer — mechanical boundary. Strict `--config` overlay.
+#
+# Merged as: defaults <- ~/.omp/agent/config.yml <- project <- THIS FILE <- runtime.
+# The global role table, advisor.enabled and retry.fallbackChains are preserved
+# untouched; this file adds only the policy layer.
+#
+# WHY THIS EXISTS
+#   `approvalMode: write` made the Engineer inert. Headless runs have no UI to
+#   approve, so every exec-tier tool failed with "requires approval but no
+#   interactive UI available". ZEI-1 spent $5.57 across six runs without one
+#   repository write. Approval-gating buys zero safety headless — it only converts
+#   risky actions into impossible ones. The boundary has to be mechanical.
+#
+# TWO TRAPS, BOTH DOCUMENTED IN OMP'S OWN RUNTIME DOCS
+#   1. `bash.patterns` governs the `bash` tool ONLY. `eval` spawns a shell via
+#      subprocess, so a deny rule here does nothing when the same command is issued
+#      through `eval`. Hence `tools.approval.eval: deny` below. Do not remove one
+#      without the other.
+#   2. Headless, `prompt` is not a middle setting. It is a denial with a worse error
+#      message. Every rule below is allow or deny. Never add a `prompt` here.
+#
+# ORDERING: rules are ordered and the first match wins. Deny rules match the whole
+# command OR any tokenized compound segment, so `cd /repo && git push` is caught.
+# Allow rules only match a whole command with no shell-control syntax, which is why
+# there is no catch-all allow: under `yolo` the mode already permits anything not
+# explicitly denied, and a catch-all would mask future safety overrides.
+#
+# FAIL-CLOSED: `--config` overlays are strict. A missing or malformed file is a hard
+# startup error, not a silent fallback to unpoliced execution. That is deliberate.
+#
+# SCOPE LIMIT — READ BEFORE RE-DISPATCHING
+#   This constrains `bash` and disables `eval`. It does NOT constrain the `write` and
+#   `edit` tools, which are write-tier and auto-approved in every headless mode. Path
+#   confinement is not expressible as a command glob; it needs either Paperclip's
+#   git_worktree execution-workspace policy (the real fix) or omp/worktree-guard.mjs.
+
+tools:
+  approvalMode: yolo
+  approval:
+    eval: deny          # closes the bash.patterns bypass. Re-enable only once
+                        # worktree placement confines the blast radius.
+
+bash:
+  patterns:
+    # --- branch and worktree integrity -------------------------------------
+    - { match: "git checkout *",         approval: deny }
+    - { match: "git switch *",           approval: deny }
+    - { match: "git worktree remove *",  approval: deny }
+    - { match: "git worktree prune*",    approval: deny }
+    - { match: "git branch -d *",        approval: deny }
+    - { match: "git branch -D *",        approval: deny }
+
+    # --- the operator's uncommitted work ------------------------------------
+    - { match: "git reset --hard*",      approval: deny }
+    - { match: "git clean *",            approval: deny }
+    - { match: "git stash*",             approval: deny }
+    - { match: "git restore *",          approval: deny }
+    - { match: "git checkout -- *",      approval: deny }
+
+    # --- no remote or history effects ---------------------------------------
+    - { match: "git push *",             approval: deny }
+    - { match: "git rebase *",           approval: deny }
+    - { match: "git commit --amend*",    approval: deny }
+    - { match: "git config --global *",  approval: deny }

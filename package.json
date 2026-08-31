@@ -1,16 +1,25 @@
 {
   "name": "factory-stack",
   "version": "1.0.0",
-  "description": "",
+  "description": "Control plane for the agent factory: declarative reconciliation over Paperclip, bounded OMP workers.",
   "main": "index.js",
+  "bin": {
+    "factory": "./bin/factory"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test \"test/**/*.test.*\"",
+    "test:unit": "node --test \"test/unit/**/*.test.*\"",
+    "test:integration": "node --test \"test/integration/**/*.test.*\"",
+    "check": "npm test && bash instructions/compile.sh --check"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
-    "paperclipai": "^2026.824.1"
+    "paperclipai": "2026.824.1"
   }
 }

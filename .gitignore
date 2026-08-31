@@ -1,3 +1,4 @@
+node_modules
 node_modules/
 
 # Compiled output — regenerate with instructions/compile.sh
@@ -11,3 +12,7 @@ instructions/out/
 *.env
 *.sql
 *.sql.gz
+
+# Apply/rollback receipts are runtime evidence carrying live instance ids.
+# They are immutable on disk and deliberately not version-controlled.
+receipts/*.json

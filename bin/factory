@@ -1,0 +1,265 @@
+#!/usr/bin/env node
+"use strict";
+// factory — the single sanctioned way to inspect and mutate the control plane.
+//
+//   factory status                          what is live, and does it match the pins
+//   factory diff                            desired vs live, semantically
+//   factory plan                            the actions that would close the gap, + hash
+//   factory apply --plan-hash <hash>        execute exactly that plan
+//   factory rollback --receipt <id>         restore an apply's pre-state and verify
+//   factory preflight <issue>               every gate that must hold before dispatch
+//   factory promote <issue> --assessment <h>  commit the reviewed diff and approve
+//
+// `apply` requires --plan-hash on purpose. It makes "I reviewed this exact
+// change" mechanical rather than remembered: if live state or the config moved
+// between plan and apply, the hash no longer matches and the apply refuses.
+
+const path = require("node:path");
+const { load } = require("../lib/config");
+const { PaperclipApi } = require("../lib/api");
+const { buildPlan, snapshot } = require("../lib/plan");
+const { applyPlan, rollback } = require("../lib/apply");
+const receipts = require("../lib/receipts");
+const { FactoryError, canonical } = require("../lib/util");
+
+const C = {
+  dim: (s) => `\x1b[2m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`, green: (s) => `\x1b[32m${s}\x1b[0m`,
+  yellow: (s) => `\x1b[33m${s}\x1b[0m`, cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+};
+
+function parseArgs(argv) {
+  const out = { _: [], flags: {} };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith("--")) {
+      const [k, inline] = a.slice(2).split("=");
+      if (inline !== undefined) out.flags[k] = inline;
+      else if (argv[i + 1] && !argv[i + 1].startsWith("--")) out.flags[k] = argv[++i];
+      else out.flags[k] = true;
+    } else out._.push(a);
+  }
+  return out;
+}
+
+function connect(cfg) {
+  return new PaperclipApi(process.env.PAPERCLIP_API_URL || cfg.api.url);
+}
+
+async function requireHealthy(api) {
+  let h;
+  try { h = await api.health(); } catch (err) {
+    throw new FactoryError(
+      `Paperclip API unreachable at ${api.baseUrl}. Start it with ops/paperclip-start.sh.`,
+      { cause: err.message },
+    );
+  }
+  if (h?.status !== "ok") throw new FactoryError(`Paperclip API is not healthy: ${JSON.stringify(h)}`);
+  return h;
+}
+
+// ---------------------------------------------------------------- pins
+function installedVersions(cfg) {
+  const { execFileSync } = require("node:child_process");
+  const fs = require("node:fs");
+  const out = {};
+  try {
+    out.paperclipai = require(path.join(cfg._root, "node_modules/paperclipai/package.json")).version;
+  } catch { out.paperclipai = null; }
+  try {
+    const reg = JSON.parse(fs.readFileSync(path.join(process.env.HOME, ".paperclip/adapter-plugins.json"), "utf8"));
+    out["@zhafron/paperclip-omp-adapter"] =
+      reg.find((r) => r.packageName === "@zhafron/paperclip-omp-adapter")?.version ?? null;
+  } catch { out["@zhafron/paperclip-omp-adapter"] = null; }
+  try {
+    out.omp = String(execFileSync("omp", ["--version"], { encoding: "utf8" })).trim().replace(/^omp\//, "");
+  } catch { out.omp = null; }
+  return out;
+}
+
+function checkPins(cfg) {
+  const live = installedVersions(cfg);
+  return Object.entries(cfg.pins).map(([name, want]) => ({
+    name, want, got: live[name] ?? null, ok: live[name] === want,
+  }));
+}
+
+// ---------------------------------------------------------------- commands
+async function cmdStatus(cfg, args) {
+  const api = connect(cfg);
+  const health = await requireHealthy(api);
+  const snap = await snapshot(api, cfg);
+  const pins = checkPins(cfg);
+  const plan = await buildPlan(api, cfg, snap);
+
+  if (args.flags.json) {
+    console.log(JSON.stringify({
+      health: { status: health.status, version: health.version },
+      pins, drift: plan.actions.map((a) => ({ id: a.id, what: a.what })), planHash: plan.planHash,
+    }, null, 2));
+    return plan.actions.length ? 1 : 0;
+  }
+
+  console.log(C.bold("api"));
+  console.log(`  ${api.baseUrl}  ${C.green(health.status)}  v${health.version}`);
+  console.log(`  deployment ${health.deploymentMode}  backup ${health.databaseBackup?.status ?? "?"} (${health.databaseBackup?.latestBackup?.name ?? "none"})`);
+
+  console.log(C.bold("\npins"));
+  for (const p of pins) {
+    console.log(`  ${p.ok ? C.green("ok  ") : C.red("DRIFT")} ${p.name.padEnd(32)} want ${p.want}  got ${p.got ?? "(not found)"}`);
+  }
+
+  console.log(C.bold("\ninstance flags"));
+  for (const [k, v] of Object.entries(cfg.instance.experimental)) {
+    const got = snap.experimental?.[k];
+    console.log(`  ${got === v ? C.green("ok  ") : C.red("DRIFT")} ${k.padEnd(32)} want ${v}  got ${got}`);
+  }
+
+  console.log(C.bold("\nresolved identifiers") + C.dim("  (by name — no UUID appears in the config)"));
+  console.log(`  company   ${snap.company.name}  ${C.dim(snap.company.id)}`);
+  console.log(`  operator  ${cfg.operator.memberEmail}  ${C.dim(snap.operator.userId)}`);
+  for (const [k, g] of Object.entries(snap.goals)) console.log(`  goal      ${k}  ${C.dim(g.id)}`);
+  for (const [n, a] of Object.entries(snap.agents)) console.log(`  agent     ${n}  ${C.dim(a.id)}`);
+  for (const [n, p] of Object.entries(snap.projects)) console.log(`  project   ${n}  ${C.dim(p.live?.id ?? "(absent)")}`);
+  for (const [n, i] of Object.entries(snap.issues)) console.log(`  issue     ${n}  ${C.dim(i.id)}  status=${i.status}`);
+
+  console.log(C.bold("\ndrift"));
+  if (!plan.actions.length) console.log(`  ${C.green("none")} — live state matches ${path.basename(cfg._file)}`);
+  else for (const a of plan.actions) console.log(`  ${C.yellow("drift")} ${a.what}`);
+
+  const bad = pins.filter((p) => !p.ok).length;
+  if (bad) console.log(C.red(`\n${bad} pin(s) drifted.`));
+  return plan.actions.length || bad ? 1 : 0;
+}
+
+function renderValue(v) {
+  const s = JSON.stringify(v, null, 2) ?? "null";
+  return s.split("\n").map((l) => "      " + l).join("\n");
+}
+
+async function cmdDiff(cfg, args) {
+  const api = connect(cfg);
+  await requireHealthy(api);
+  const plan = await buildPlan(api, cfg);
+  if (args.flags.json) { console.log(JSON.stringify(plan.actions, null, 2)); return plan.actions.length ? 1 : 0; }
+  if (!plan.actions.length) { console.log(C.green("no drift — live state matches the declared config")); return 0; }
+  for (const a of plan.actions) {
+    console.log(C.bold(`\n${a.id}`) + `  ${C.dim(a.kind)}`);
+    console.log(`  ${a.what}`);
+    console.log(C.red("    live:"));   console.log(renderValue(a.before));
+    console.log(C.green("    desired:")); console.log(renderValue(a.after));
+  }
+  console.log(C.yellow(`\n${plan.actions.length} action(s) needed.`));
+  return 1;
+}
+
+async function cmdPlan(cfg, args) {
+  const api = connect(cfg);
+  await requireHealthy(api);
+  const plan = await buildPlan(api, cfg);
+  if (args.flags.json) {
+    const { snapshot: _s, ...rest } = plan;
+    console.log(JSON.stringify(rest, null, 2));
+    return 0;
+  }
+  console.log(C.bold(`plan  ${plan.actions.length} action(s)`));
+  for (const [n, a] of plan.actions.entries()) {
+    console.log(`\n  ${n + 1}. ${a.what}`);
+    console.log(`     ${C.dim(`${a.method} ${a.writePath}`)}`);
+    console.log(`     ${C.dim(`writes only: ${a.allow.join(", ")}`)}`);
+    console.log(`     ${C.dim(`verified by: ${a.expect.map((e) => e.path).join(", ") || "collection readback"}`)}`);
+  }
+  console.log(C.bold(`\nplan hash  ${plan.planHash}`));
+  console.log(plan.actions.length
+    ? C.dim(`\napply with:\n  factory apply --plan-hash ${plan.planHash}`)
+    : C.green("\nnothing to do."));
+  return 0;
+}
+
+async function cmdApply(cfg, args) {
+  const api = connect(cfg);
+  await requireHealthy(api);
+  const expected = args.flags["plan-hash"];
+  if (!expected || expected === true) {
+    console.error(C.red("apply requires --plan-hash <hash>. Run `factory plan` and review it first."));
+    return 2;
+  }
+  const plan = await buildPlan(api, cfg);
+  const dryRun = Boolean(args.flags["dry-run"]);
+  let stored;
+  try {
+    stored = await applyPlan(api, cfg, plan, { expectedHash: expected, dryRun });
+  } catch (err) {
+    console.error(C.red(`\n${err.message}`));
+    if (err.details) console.error(C.dim(JSON.stringify(err.details, null, 2)));
+    if (err.receipt) console.error(C.dim(`receipt: ${err.receipt.id}`));
+    return 1;
+  }
+  const r = stored.receipt;
+  console.log(C.bold(`${dryRun ? "dry run" : "applied"}  ${r.actionsApplied}/${r.actionsPlanned} action(s)`));
+  for (const a of r.actions) {
+    console.log(`  ${a.status === "applied" ? C.green("ok  ") : C.dim(a.status)} ${a.what}`);
+  }
+  if (!dryRun) console.log(C.dim(`\nreceipt ${r.id}\n  ${stored.file}`));
+  return 0;
+}
+
+async function cmdRollback(cfg, args) {
+  const api = connect(cfg);
+  await requireHealthy(api);
+  const id = args.flags.receipt;
+  if (!id || id === true) { console.error(C.red("rollback requires --receipt <id>")); return 2; }
+  try {
+    const stored = await rollback(api, cfg, id);
+    console.log(C.green(`rolled back ${id}`));
+    for (const v of stored.receipt.verification) {
+      console.log(`  ${v.ok ? C.green("ok  ") : C.red("BAD ")} ${v.action}  ${v.field}`);
+    }
+    console.log(C.dim(`\nreceipt ${stored.receipt.id}`));
+    return 0;
+  } catch (err) {
+    console.error(C.red(err.message));
+    if (err.details) console.error(C.dim(JSON.stringify(err.details, null, 2)));
+    return 1;
+  }
+}
+
+async function cmdReceipts(cfg) {
+  const rows = receipts.list(cfg._root);
+  if (!rows.length) { console.log(C.dim("no receipts")); return 0; }
+  for (const r of rows) {
+    const mark = r.outcome === "applied" || r.outcome === "restored" ? C.green(r.outcome) : C.red(r.outcome);
+    console.log(`${r.id}  ${String(r.kind).padEnd(9)} ${mark}  ${r.finishedAt}`);
+  }
+  return 0;
+}
+
+const COMMANDS = {
+  status: cmdStatus, diff: cmdDiff, plan: cmdPlan, apply: cmdApply,
+  rollback: cmdRollback, receipts: cmdReceipts,
+};
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const name = args._[0];
+  if (!name || name === "help" || args.flags.help) {
+    console.log(require("node:fs").readFileSync(__filename, "utf8")
+      .split("\n").slice(2, 14).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
+    return 0;
+  }
+  const cfg = load(process.env.FACTORY_CONFIG);
+
+  // preflight/promote live in their own modules; they are gates, not reconcilers.
+  if (name === "preflight") return require("../lib/preflight").run(cfg, args, { connect, requireHealthy, C });
+  if (name === "promote") return require("../lib/promote").run(cfg, args, { connect, requireHealthy, C });
+
+  const fn = COMMANDS[name];
+  if (!fn) { console.error(C.red(`unknown command: ${name}`)); return 2; }
+  return (await fn(cfg, args)) ?? 0;
+}
+
+main().then((code) => process.exit(code ?? 0)).catch((err) => {
+  console.error(C.red(err instanceof FactoryError ? err.message : (err.stack || String(err))));
+  if (err.details) console.error(C.dim(JSON.stringify(err.details, null, 2)));
+  process.exit(1);
+});
