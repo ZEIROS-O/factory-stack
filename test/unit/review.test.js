@@ -245,3 +245,19 @@ test("round exhaustion never produces the blocked-and-reassign-to-engineer state
   assert.notEqual(r.action, "request_changes");
   assert.equal(r.assignToEngineer, false, "an exhausted review must not bounce back to the producer");
 });
+
+test("independence collapses product suffixes, because one lab's two products are one opinion", () => {
+  const { modelVendor } = require("../../lib/review");
+
+  // Same lab, different product line: NOT independent.
+  assert.throws(
+    () => assertModelIndependence({ engineerModel: "openai/gpt-5", reviewerModel: "openai-codex/gpt-5.6-sol" }),
+    /same model family/,
+  );
+
+  // But the recorded identity keeps the route that actually ran, so an
+  // assessment says which product produced it rather than a normalisation.
+  assert.equal(modelVendor("openai-codex/gpt-5.6-sol"), "openai-codex");
+  assert.equal(modelVendor("openrouter/anthropic/claude-opus-5"), "anthropic",
+    "a routing prefix names the broker, not the author of the weights");
+});

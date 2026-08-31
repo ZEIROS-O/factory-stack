@@ -1,0 +1,6 @@
+{
+  "name": "paperclip-review",
+  "version": "1.0.0",
+  "description": "The Reviewer's single write-capable tool: submit one structured assessment for the current Paperclip issue and let the native execution stage advance.",
+  "author": "factory-stack"
+}

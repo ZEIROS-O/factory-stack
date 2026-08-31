@@ -111,10 +111,22 @@
       },
       "adapterConfig": {
         "$comment": [
-          "paperclip_review is the Reviewer's ONLY write-capable tool. It reaches",
-          "the run as a custom tool inside the plugin directory below, and must",
-          "also appear in `tools` because that list is an allowlist.",
-          "The Reviewer deliberately has no bash and no write/edit."
+          "paperclip_review is the Reviewer's ONLY write-capable tool, and it must",
+          "appear in `tools` because that list is an allowlist. The Reviewer",
+          "deliberately has no bash and no write/edit.",
+          "",
+          "BLOCKER — THE DISCOVERY PATH IS UNPROVEN. `pluginDirs` reaches OMP as",
+          "--plugin-dir (adapter execute.js:191), and OMP 18.0.10 does NOT register",
+          "custom tools that way. Probed directly, with the directory laid out both",
+          "as <dir>/tools/<name>/index.ts + plugin.json and as the Claude-plugin",
+          "shape with .claude-plugin/plugin.json, both produce:",
+          "  CliUsageError: Unknown tool in --tools: paperclip_review",
+          "That is fatal at STARTUP, before any model is reached, so this Reviewer",
+          "would not review badly — it would never run, having consumed a dispatch.",
+          "The tool source is committed and its decision logic is fully tested via",
+          "lib/review.js; what is missing is only the registration mechanism.",
+          "`factory preflight` gates on this, so dispatch stays blocked until a",
+          "discovery path is proven rather than assumed."
         ],
         "command": "${FACTORY_ROOT}/ops/omp-bwrap.sh",
         "model": "openai-codex/gpt-5.6-sol",
