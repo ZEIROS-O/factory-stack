@@ -1,0 +1,13 @@
+node_modules/
+
+# Compiled output — regenerate with instructions/compile.sh
+instructions/out/
+
+# Session scratch
+.remember/
+
+# Never commit credentials or database dumps
+.env
+*.env
+*.sql
+*.sql.gz
