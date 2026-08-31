@@ -40,8 +40,11 @@ function fakeServer({ documents = {} } = {}) {
       if (body.baseRevisionId && prior && body.baseRevisionId !== prior.latestRevisionId) {
         return { ok: false, status: 409, text: async () => "revision conflict" };
       }
+      // `body` on the wire, matching services/documents.js:48 which maps
+      // `body: row.latestBody`. A fake that emits `latestBody` agrees with a
+      // client that reads `latestBody`, and both are wrong together.
       const doc = {
-        title: body.title, format: body.format, latestBody: body.body,
+        title: body.title, format: body.format, body: body.body,
         latestRevisionId: `rev-${calls.filter((c) => c.method === "PUT").length}`,
       };
       state.documents.set(id, doc);
@@ -97,7 +100,7 @@ const cfgOf = (root) => ({ _root: root });
 
 test("apply of an upsert over an EXISTING document is revertible and records the exact prior state", async () => {
   const root = tempRoot();
-  const live = { title: "old", format: "markdown", latestBody: "old body", latestRevisionId: "rev-0" };
+  const live = { title: "old", format: "markdown", body: "old body", latestRevisionId: "rev-0" };
   const server = fakeServer({ documents: { "issue-1/spec": live } });
   const api = new PaperclipApi("http://x", { fetch: server.fetchImpl });
   const action = upsertAction({ title: "new", body: "new body" }, live);
@@ -109,9 +112,9 @@ test("apply of an upsert over an EXISTING document is revertible and records the
   assert.equal(r.revertible, true, "an upsert that found a prior object must be revertible");
   assert.equal(r.reason_not_revertible, null);
   assert.deepEqual(r.restore, {
-    title: "old", format: "markdown", latestBody: "old body", latestRevisionId: "rev-0",
+    title: "old", format: "markdown", body: "old body", latestRevisionId: "rev-0",
   });
-  assert.equal(r.readback.latestBody, "new body");
+  assert.equal(r.readback.body, "new body");
 });
 
 test("apply of a CREATING upsert (404 before) is applied but marked NOT revertible, and rollback refuses it", async () => {
@@ -126,7 +129,7 @@ test("apply of a CREATING upsert (404 before) is applied but marked NOT revertib
   assert.equal(r.revertible, false, "a creating upsert must never be auto-rolled-back");
   assert.match(r.reason_not_revertible, /deletion is destructive/);
   // The object really was created server-side.
-  assert.equal(server.state.documents.get("issue-1/spec").latestBody, "new body");
+  assert.equal(server.state.documents.get("issue-1/spec").body, "new body");
 
   await assert.rejects(
     () => rollback(api, cfgOf(root), stored.receipt.id),
@@ -137,25 +140,25 @@ test("apply of a CREATING upsert (404 before) is applied but marked NOT revertib
     },
   );
   // And the refusal deleted nothing.
-  assert.equal(server.state.documents.get("issue-1/spec").latestBody, "new body");
+  assert.equal(server.state.documents.get("issue-1/spec").body, "new body");
 });
 
 test("rollback restores the exact prior document bytes and independently verifies them", async () => {
   const root = tempRoot();
-  const live = { title: "old", format: "markdown", latestBody: "old body", latestRevisionId: "rev-0" };
+  const live = { title: "old", format: "markdown", body: "old body", latestRevisionId: "rev-0" };
   const server = fakeServer({ documents: { "issue-1/spec": live } });
   const api = new PaperclipApi("http://x", { fetch: server.fetchImpl });
   const action = upsertAction({ title: "new", body: "new body" }, live);
 
   const applied = await applyPlan(api, cfgOf(root), planOf([action]));
-  assert.equal(server.state.documents.get("issue-1/spec").latestBody, "new body");
+  assert.equal(server.state.documents.get("issue-1/spec").body, "new body");
 
   const rolled = await rollback(api, cfgOf(root), applied.receipt.id);
   assert.equal(rolled.receipt.outcome, "restored");
   assert.ok(rolled.receipt.verification.length > 0);
   assert.ok(rolled.receipt.verification.every((v) => v.ok));
   const doc = server.state.documents.get("issue-1/spec");
-  assert.equal(doc.latestBody, "old body");
+  assert.equal(doc.body, "old body");
   assert.equal(doc.title, "old");
   assert.equal(doc.format, "markdown");
   // A restoring PUT mints a NEW server revision id (append-only revisions);
@@ -168,7 +171,7 @@ test("apply stops at the first failed action and the receipt records the failure
   const root = tempRoot();
   // Server accepts the PUT but never persists — the 200-and-do-nothing class.
   const calls = [];
-  const live = { title: "old", format: "markdown", latestBody: "old body", latestRevisionId: "rev-0" };
+  const live = { title: "old", format: "markdown", body: "old body", latestRevisionId: "rev-0" };
   const fetchImpl = async (url, opts = {}) => {
     const method = opts.method ?? "GET";
     calls.push(method);
@@ -193,7 +196,7 @@ test("apply stops at the first failed action and the receipt records the failure
 
 test("rollback refuses to clobber a document written concurrently after the apply", async () => {
   const root = tempRoot();
-  const live = { title: "old", format: "markdown", latestBody: "old body", latestRevisionId: "rev-0" };
+  const live = { title: "old", format: "markdown", body: "old body", latestRevisionId: "rev-0" };
   const server = fakeServer({ documents: { "issue-1/spec": live } });
   const api = new PaperclipApi("http://x", { fetch: server.fetchImpl });
   const action = upsertAction({ title: "new", body: "new body" }, live);
@@ -209,7 +212,7 @@ test("rollback refuses to clobber a document written concurrently after the appl
     method: "PUT",
     body: JSON.stringify({ title: "concurrent", format: "markdown", body: "concurrent body" }),
   });
-  assert.equal(server.state.documents.get("issue-1/spec").latestBody, "concurrent body");
+  assert.equal(server.state.documents.get("issue-1/spec").body, "concurrent body");
 
   await assert.rejects(
     () => rollback(api, cfgOf(root), applied.receipt.id),
@@ -220,7 +223,7 @@ test("rollback refuses to clobber a document written concurrently after the appl
     },
   );
   assert.equal(
-    server.state.documents.get("issue-1/spec").latestBody, "concurrent body",
+    server.state.documents.get("issue-1/spec").body, "concurrent body",
     "a conflicting rollback must leave the concurrent write intact, not clobber it",
   );
 });

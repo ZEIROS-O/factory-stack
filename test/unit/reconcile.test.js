@@ -226,7 +226,7 @@ test("objective document reconciliation plans an optimistic PUT with exact body 
   const snap = {
     issues: { "ZEI-1": { id: "issue-1" } },
     issueDocuments: { "ZEI-1": { spec: {
-      title: "old", format: "markdown", latestBody: "old", latestRevisionId: "revision-1",
+      title: "old", format: "markdown", body: "old", latestRevisionId: "revision-1",
     } } },
   };
   const actions = [];
@@ -235,7 +235,9 @@ test("objective document reconciliation plans an optimistic PUT with exact body 
   assert.equal(actions[0].method, "PUT");
   assert.equal(actions[0].writePath, "/api/issues/issue-1/documents/spec");
   assert.equal(actions[0].body.baseRevisionId, "revision-1");
-  assert.deepEqual(actions[0].expect.map((x) => x.path), ["title", "format", "latestBody", "latestRevisionId"]);
+  // `body`, not `latestBody`: services/documents.js:48 maps `body: row.latestBody`
+  // on the way out, so `body` is the only content field a readback ever sees.
+  assert.deepEqual(actions[0].expect.map((x) => x.path), ["title", "format", "body", "latestRevisionId"]);
 });
 
 test("instruction reconciliation compares exact compiled bytes and plans no action on a hash match", () => {
@@ -252,7 +254,7 @@ test("instruction reconciliation compares exact compiled bytes and plans no acti
 });
 
 test("document and instruction upserts fail on the broader 200-and-do-nothing API class", async () => {
-  const state = { title: "old", format: "markdown", latestBody: "old", latestRevisionId: "r1" };
+  const state = { title: "old", format: "markdown", body: "old", latestRevisionId: "r1" };
   const calls = [];
   const fetchImpl = async (url, opts = {}) => {
     const method = opts.method ?? "GET";
@@ -263,7 +265,7 @@ test("document and instruction upserts fail on the broader 200-and-do-nothing AP
     readPath: "/api/issues/i/documents/spec", writePath: "/api/issues/i/documents/spec", method: "PUT",
     body: { title: "new", format: "markdown", body: "new", changeSummary: "change", baseRevisionId: "r1" },
     allow: ["title", "format", "body", "changeSummary", "baseRevisionId"],
-    expect: [{ path: "latestBody", value: "new" }],
+    expect: [{ path: "body", value: "new" }],
   }), /200-and-do-nothing/);
   assert.deepEqual(calls, ["GET", "PUT", "GET"]);
 });

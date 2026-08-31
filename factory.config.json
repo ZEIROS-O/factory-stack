@@ -166,7 +166,12 @@
         }
       },
 
+      "$comment_responsibleUser": "THE ESCALATION TARGET. On round exhaustion the server hands the stage to reviewEscalationUserId(issue) = responsibleUserId ?? createdByUserId ?? null (issue-execution-policy.js:345). When that resolves to NULL the escalation branch at :681 is skipped entirely and control falls through to `patch.status = in_progress` reassigned to the return assignee — the Engineer. That is the blocked-and-loop state the plan forbids, reached by omission rather than by error. Resolved by operator key, never by UUID.",
+      "responsibleUser": "operator",
+
       "executionPolicy": {
+        "$comment_maxReviewRounds": "DECLARED HERE BECAUSE THIS IS WHERE THE SERVER LOOKS. resolveMaxReviewRounds(policy) reads policy.maxReviewRounds (issue-execution-policy.js:336) and falls back to DEFAULT_MAX_REVIEW_ROUNDS = 3 (:9). The copy under issues[].limits is the factory's own promote-time gate; it is never sent to the server, so declaring the ceiling only there would leave the live instance running 3 rounds while the config appeared to say 2.",
+        "maxReviewRounds": 2,
         "mode": "normal",
         "stages": [
           { "type": "review",   "approvalsNeeded": 1, "participants": [{ "type": "agent", "agent": "OMP Reviewer" }] },

@@ -1,0 +1,63 @@
+# OMP Reviewer — mechanical boundary. Strict `--config` overlay.
+#
+# Merged as: defaults <- ~/.omp/agent/config.yml <- project <- THIS FILE <- runtime.
+#
+# WHY THIS EXISTS
+#   The Reviewer's independence is worth nothing if it can edit the thing it is
+#   reviewing. Its verdict has to be an observation, not an intervention. So the
+#   Reviewer gets exactly one write-capable tool — `paperclip_review` — and that
+#   tool writes ONE assessment document for ONE issue it did not choose.
+#
+#   This is the same lesson the Engineer policy records: approval-gating buys
+#   zero safety headless, because there is no UI to approve at. The boundary has
+#   to be mechanical. Every rule below is allow or deny; never add a `prompt`.
+#
+# DEFENCE IN DEPTH — READ BEFORE EDITING
+#   factory.config.json already restricts this agent with
+#     tools: read,grep,glob,ast-grep,lsp,todo,paperclip_review
+#   which is an ALLOWLIST: bash, eval, write and edit are absent and therefore
+#   unavailable. This file denies them a second time anyway. The allowlist and
+#   this policy fail independently: a hand-edited agent record on the live
+#   server, a future `factory apply` regression, or an adapter default could each
+#   restore a tool the allowlist was supposed to withhold. Two independent
+#   mechanisms mean neither one alone is load-bearing.
+#
+#   `bash.patterns` governs the `bash` tool ONLY — `eval` spawns a shell through
+#   a different path, so both are denied below. Removing one without the other
+#   reopens the hole the Engineer policy already documents.
+#
+# WHAT THE REVIEWER MAY STILL DO
+#   Read the worktree, grep it, walk it with lsp/ast-grep. That is the whole job:
+#   re-derive the objective from the artifact. Executing the acceptance commands
+#   is NOT done here — `paperclip_review` runs them in a separate read-only
+#   Bubblewrap verifier (ops/omp-verify-bwrap.sh), so the commands that decide
+#   the verdict never run under the Reviewer's own tool permissions.
+#
+# FAIL-CLOSED: `--config` overlays are strict. A missing or malformed file is a
+# hard startup error, not a silent fallback to unpoliced execution.
+
+tools:
+  approvalMode: yolo
+  approval:
+    bash: deny         # the Reviewer never runs repository commands itself;
+                       # acceptance commands belong to the read-only verifier.
+    eval: deny         # closes the bash.patterns bypass. Never remove alone.
+    write: deny        # no repository mutation, at any path.
+    edit: deny
+    ast-edit: deny
+    notebook: deny
+    checkpoint: deny   # no session/repo checkpoints: not the Reviewer's authority.
+    task: deny         # no nested paid fan-out; the cost ceiling is per-run.
+    github: deny       # no external effect of any kind.
+    web_search: deny
+    browser: deny
+    computer: deny
+    generate_image: deny
+    tts: deny
+
+bash:
+  patterns:
+    # Unreachable while `tools.approval.bash: deny` holds, and deliberately kept
+    # so that if bash is ever re-enabled the repository-integrity denials are
+    # already in place rather than being remembered later.
+    - { match: "*", approval: deny }
