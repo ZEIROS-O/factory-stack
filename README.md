@@ -14,7 +14,23 @@ you → Paperclip issue → heartbeat (30s) → spawns a worker CLI → result o
 | `instructions/src/` | Governing law. Compiled into each agent's `AGENTS.md` |
 | `instructions/compile.sh` | Builds and pushes the three bundles |
 | `scripts/prove-restore.sh` | Proves a database backup actually restores |
+| `ops/paperclip-{start,status,stop}.sh` | Fail-closed lifecycle wrappers for the local Paperclip instance |
 | `scripts/sync-superpowers.sh` | Syncs the superpowers skill pack into Hermes |
+
+## Local Paperclip lifecycle
+
+Run the local instance only through its tracked tmux session:
+
+```bash
+ops/paperclip-start.sh
+ops/paperclip-status.sh
+ops/paperclip-stop.sh
+```
+
+The wrappers own the `paperclip-default` session and refuse duplicate sessions
+or processes, an occupied API port, stale/mismatched runtime PID metadata, a
+database directory owned by another account, and an unhealthy API. Start only
+after a fresh backup has been restore-proven with `scripts/prove-restore.sh`.
 
 ## Agents
 
