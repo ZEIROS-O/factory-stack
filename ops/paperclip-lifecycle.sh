@@ -46,7 +46,11 @@ check_db_ownership() {
 }
 
 port_is_occupied() {
-  ss -ltnH "sport = :$api_port" 2>/dev/null | awk 'NF { found = 1 } END { exit !found }'
+  local listeners
+  if ! listeners="$(ss -ltnH "sport = :$api_port" 2>/dev/null)"; then
+    fail "cannot inspect API port $api_port with ss"
+  fi
+  [[ -n "$listeners" ]]
 }
 
 health_is_ok() {
@@ -89,19 +93,57 @@ check_runtime_metadata_for_start() {
   fail "Paperclip PID metadata already names a running process; refusing an untracked duplicate"
 }
 
+paperclip_process_count() {
+  local rows
+  if ! rows="$(ps -eo pid=,args= 2>/dev/null)"; then
+    fail "cannot inspect Paperclip processes"
+  fi
+  awk -v bin="$paperclip_bin" '$0 ~ bin && $0 ~ / run( |$)/ && $0 !~ /[[:space:]]tmux new-session / { count++ } END { print count + 0 }' <<< "$rows"
+}
+
 check_exactly_one_process() {
   local count
-  count="$(ps -eo pid=,args= 2>/dev/null | awk -v bin="$paperclip_bin" '$0 ~ bin && $0 ~ / run( |$)/ && $0 !~ /[[:space:]]tmux new-session / { count++ } END { print count + 0 }')"
+  count="$(paperclip_process_count)"
   [[ "$count" = 1 ]] || fail "expected exactly one Paperclip process in tracked session; found $count"
+}
+
+check_no_paperclip_processes() {
+  local count
+  count="$(paperclip_process_count)"
+  [[ "$count" = 0 ]] || fail "expected no Paperclip processes before start; found $count"
+}
+
+check_session_owns_runtime() {
+  local pane_output candidate parent
+  if ! pane_output="$(tmux list-panes -t "$session" -F '#{pane_pid}' 2>/dev/null)"; then
+    fail "cannot inspect panes for tracked tmux session $session"
+  fi
+  [[ -n "$pane_output" ]] || fail "tracked tmux session $session has no panes"
+
+  candidate="$runtime_pid"
+  while [[ "$candidate" =~ ^[0-9]+$ && "$candidate" -gt 1 ]]; do
+    while IFS= read -r pane_pid; do
+      [[ "$pane_pid" = "$candidate" ]] && return 0
+    done <<< "$pane_output"
+    parent="$(ps -p "$candidate" -o ppid= 2>/dev/null | tr -d '[:space:]')" || break
+    [[ "$parent" =~ ^[0-9]+$ && "$parent" != "$candidate" ]] || break
+    candidate="$parent"
+  done
+  fail "tracked tmux session $session does not own runtime PID $runtime_pid"
+}
+
+check_tracked_process() {
+  tmux has-session -t "$session" 2>/dev/null || fail "tracked tmux session $session is not running"
+  read_runtime_info || fail "missing runtime PID metadata for tracked session"
+  pid_is_expected_paperclip "$runtime_pid" || fail "runtime PID metadata is stale or points to an unexpected process"
+  check_session_owns_runtime
+  check_exactly_one_process
 }
 
 check_running() {
   read_config
   check_db_ownership
-  tmux has-session -t "$session" 2>/dev/null || fail "tracked tmux session $session is not running"
-  read_runtime_info || fail "missing runtime PID metadata for tracked session"
-  pid_is_expected_paperclip "$runtime_pid" || fail "runtime PID metadata is stale or points to an unexpected process"
-  check_exactly_one_process
+  check_tracked_process
   port_is_occupied || fail "Paperclip API port $api_port is not listening"
   health_is_ok || fail "Paperclip API is unhealthy at $api_url"
 }
@@ -111,17 +153,21 @@ start() {
   check_db_ownership
   tmux has-session -t "$session" 2>/dev/null && fail "tmux session $session already exists; refusing duplicate start"
   check_runtime_metadata_for_start
+  check_no_paperclip_processes
   if port_is_occupied; then fail "port $api_port is already occupied; refusing to start Paperclip"; fi
   [[ -x "$paperclip_bin" ]] || fail "pinned Paperclip executable is missing or not executable: $paperclip_bin"
   tmux new-session -d -s "$session" "exec '$paperclip_bin' run --instance '$instance_id' --config '$config'"
   local deadline=$((SECONDS + startup_timeout))
   while (( SECONDS < deadline )); do
     if health_is_ok; then
-      if check_running; then
+      if (check_running); then
         echo "Paperclip started in tmux session $session."
         return 0
+      else
+        validation_status=$?
+        tmux kill-session -t "$session" 2>/dev/null || true
+        return "$validation_status"
       fi
-      return 1
     fi
     sleep 1
   done
@@ -137,9 +183,8 @@ status() {
 stop() {
   read_config
   check_db_ownership
-  tmux has-session -t "$session" 2>/dev/null || fail "tracked tmux session $session is not running"
-  read_runtime_info || fail "missing runtime PID metadata for tracked session"
-  pid_is_expected_paperclip "$runtime_pid" || fail "runtime PID metadata is stale or points to an unexpected process"
+  if port_is_occupied; then :; fi
+  check_tracked_process
   tmux send-keys -t "$session" C-c
   local deadline=$((SECONDS + startup_timeout))
   while tmux has-session -t "$session" 2>/dev/null; do
