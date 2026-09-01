@@ -73,9 +73,20 @@ could delete the approval check, the base-commit check, or the diff comparison
 and the whole suite stayed green. Before trusting a test, delete the line it
 claims to protect and confirm it goes red.
 
-**5. Failures are frequently silent.** OMP drops a custom tool that throws at
-load with the *same* error text as a tool that was never found. A `--config`
-overlay pointed at a missing file is a hard startup error. Paperclip can return
+**And confirm the mutant actually landed.** Two mutation checks here "passed"
+while testing nothing: a `sed` whose delimiter collided with the pattern (so the
+edit never applied), and a removal-drift test whose signal was masked by other
+drift. Re-read the file after mutating it, before believing the result.
+
+**5. Failures are frequently silent — and the same class of mistake has opposite
+visibility.** Passing an *invalid* OMP tool name (e.g. `ast-grep`) is a loud,
+fatal `CliUsageError` at launch. A *custom plugin tool that throws during its own
+module load* is dropped silently and yields the generic `Unknown tool in --tools`
+— identical to a tool that was never found. Two independent root causes behind
+one error string: fixing the flag alone left the message unchanged because
+`FACTORY_ROOT` was also wrong. A synthetic probe passed while the real plugin
+still failed, which is the only reason it was caught. Also: a `--config` overlay
+pointing at a missing file is a hard startup error, and Paperclip can return
 HTTP 200 and change nothing.
 
 **6. A fake can encode the same wrong assumption as the code.** `apply.test.js`
@@ -203,6 +214,13 @@ introduce a second task database or scheduler.
 | §6 Tests/canary | Partial | Unit/integration exist; **live canary never run** |
 | §7 ZEI-1 | Not started | Blocked behind the canary |
 
+### The uncommitted working tree is deliberate WIP, not scratch
+
+`lib/promote.js`, `lib/review.js`, `lib/execution-receipt.js`, the two schema
+files and three test files are uncommitted mid-Task-5 implementation, left when
+a session was cut off. **Do not discard them as abandoned scratch work.** See §7
+for the defects they still carry.
+
 ### The one honest headline
 
 **The loop has never run end to end.** Everything above is mechanism plus unit
@@ -304,9 +322,13 @@ Also true and load-bearing:
   `test/unit/documents-api-shape.test.js`. A client expecting `latestBody` reads
   `undefined` and silently compares nothing.
 - **`enableIsolatedWorkspaces` defaults to FALSE**
-  (`validators/instance.ts:44`). While disabled, issue execution-workspace
-  fields are accepted and silently dropped — a 200 that persists nothing. Live
-  value is currently `true`; re-check it before any dispatch.
+  (`validators/instance.ts:44`), and while disabled the server literally
+  `delete`s `executionWorkspaceId`, `executionWorkspacePreference` and
+  `executionWorkspaceSettings` from the payload, then returns a normal 200 with
+  the full issue object (`@paperclipai/server/dist/services/issues.js:5313-5317`;
+  the same guard repeats at :5610 and :5850). **Trust that 200 and the next
+  dispatch writes straight into the operator's uncommitted work while believing
+  it is isolated.** Live value is currently `true`; re-check before any dispatch.
 - **`enableWorktreeRunExecution` must stay false** for the ZEI-1 boundary.
   Currently `false`. Both flags are readable at
   `GET /api/instance/settings/experimental`.
@@ -318,21 +340,97 @@ Also true and load-bearing:
   with exactly one exception: `env`, validated against `envConfigSchema`. So the
   server will accept almost any adapterConfig key — its presence proves nothing
   about whether anything reads it.
+- **A successful run with no disposition is AUTOMATICALLY RE-DISPATCHED.** When a
+  run exits 0 but leaves no clear next step, the server logs
+  `issue.successful_run_handoff_required` and creates a **corrective run**
+  (`services/heartbeat.js:7026`). This is the engine of the runaway loop in §5c:
+  anything that makes an agent finish without reaching a terminal disposition
+  does not fail safe — it re-dispatches, repeatedly, until a budget cap stops it.
+  **Every objective must reach an explicit terminal state; this is enforced by
+  billing, not by politeness.**
+
+### Where to read the server's real code
+
+The two packages are different and the technique differs:
+
+- **`@paperclipai/server`** — ships readable `dist/` JavaScript. Just read it:
+  `node_modules/@paperclipai/server/dist/services/issues.js`,
+  `.../services/heartbeat.js`, `.../routes/*.js`. This is where issue, run,
+  workspace and heartbeat behaviour lives.
+- **`paperclipai`** (the CLI) — minified. Recover TypeScript from
+  `dist/index.js.map` `sourcesContent` (§0, trap 3). This is where validators,
+  schemas and adapter-utils live.
 
 ## 5c. Cost incidents
 
-- **2026-08-31 — ZEI-1 runaway, $5.57 across six runs, zero repository writes.**
-  Cause: `approvalMode: write` on a headless agent. With no UI to approve at,
-  every exec-tier tool failed, and the agent burned turns retrying and re-reading
-  context (~$0.25 startup + ~$1.57 of re-reads over 22 turns). The fix is
-  mechanical confinement, not approval: `approvalMode: yolo` plus the strict
-  `--config` policy overlay and the worktree guard. See the header of
-  `omp/engineer.policy.yml`, which records this in full.
+- **2026-08-31 — ZEI-1 runaway: ~$5.57 across six runs in ~10 minutes, zero
+  repository writes.** The full mechanism, because no single piece looks
+  dangerous alone:
+  1. `approvalMode: write` on a headless agent (Paperclip runs OMP `--mode json
+     -p`). Every exec-tier tool fails with *"requires approval but no
+     interactive UI available"*.
+  2. The run nevertheless **exits 0** and is recorded `succeeded`.
+  3. The issue is therefore left `in_progress` with no disposition.
+  4. The server's successful-run handoff creates a **corrective run** — and the
+     loop repeats, bounded only by the $40 agent cap (~2 hours).
+
+  The fix is mechanical confinement, not approval: `approvalMode: yolo` plus the
+  strict `--config` overlay and the worktree guard. `omp/engineer.policy.yml`
+  records this in full. Note `bash.patterns` governs the `bash` tool ONLY —
+  `eval` spawns a shell by another path, so `tools.approval.eval: deny` is
+  required too; removing one without the other reopens the hole.
+- **~$1.82 of "startup" was 86% waste.** Real invocation cost was ~$0.25 (a
+  cache-write of a 39,415-token standing prompt); the other ~$1.57 was 22 turns
+  re-reading that same prompt. Keep the resident prompt small — skills should be
+  loaded per task, not all-resident.
 - **The same incident was then mis-attributed** by a later agent (reported as
   ~1% of cost when it was ~61%). Reconcile cost against the run ledger
   (`usageJson`) rather than estimating it.
 - **Standing rule:** billed dispatch requires explicit operator approval, every
   time. Unknown or unreconciled cost is not zero.
+
+## 5d. Environment gotchas (this machine, WSL2)
+
+- **Bubblewrap mount order is load-bearing.** `--tmpfs /tmp` must come *after*
+  the worktree's bind, or it silently masks any worktree living under `/tmp`.
+  Mutation-tested: flipping the order flips the test result.
+- **Do not redirect `HOME` inside the sandbox without checking Python.** Doing so
+  broke user-site resolution, so every `pytest` invocation returned `No module
+  named pytest` — six false BLOCKED verdicts from a sandbox that merely looked
+  stricter than intended. A tool that cannot run is not a failing test.
+- **`chmod +x` can fail on this filesystem.** Invoke scripts as
+  `bash scripts/foo.sh` rather than executing them directly.
+- **Watch for orphaned `paperclipai onboard` processes.** One left running in the
+  background became the parent of the embedded Postgres; hours later it died and
+  took the database with it, and the real foreground server (untouched, still
+  alive) began returning 503. After any setup command, confirm no orphan remains.
+- **OMP ships its full TypeScript `src/`** — read that, never the ~19MB minified
+  `dist/cli.js`.
+- **Some integration tests cannot run inside a managed agent sandbox.** Nested
+  `git` and bwrap netlink setup fail with `EPERM`, which reads as a broken test
+  suite when the suite is fine. Re-run outside the sandbox before believing a
+  failure.
+
+## 5e. Claims that were investigated and are FALSE
+
+Recorded so they are not rediscovered and re-acted upon:
+
+- **"`instructions/compile.sh --check` silently performs live writes."** This was
+  TRUE on 2026-08-31 — the flag was ignored and the live publish path ran,
+  mutating agent metadata timestamps (bytes were identical, but it was an
+  unauthorised write). It was then fixed. **Verified 2026-09-01: the current
+  script contains no `curl` or HTTP call at all** and does only
+  `cmp`/`sha256sum`/`grep` locally. Kept here because the historical claim is
+  still repeated in old handoffs: check the script, don't re-act on the report.
+  The general lesson stands — *a flag named `--check` is not evidence of a dry
+  run; read the code.*
+- **"`adapterConfig.tools`/`configFiles`/`hooks`/`pluginDirs`/`approvalMode`/
+  `autoApprove` are inert"** — FALSE; see §5.
+- **"The adapter hardcodes `--tools read,bash,edit,write,grep,find,ls`."** FALSE
+  for this adapter; it hardcodes nothing and emits `--tools` only when the key is
+  set.
+- **"`extraArgs` is the only key that reaches the OMP CLI."** FALSE; it is one of
+  many, appended last.
 
 ## 6. What is proven, and what is not
 

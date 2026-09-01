@@ -28,6 +28,36 @@ curl -s 127.0.0.1:3100/api/health
 node bin/factory plan                     # read-only
 ```
 
+## Traps that have each cost a session
+
+1. **Confirm which adapter serves an agent's `adapterType` before reasoning about
+   any `adapterConfig` key.** Behaviour is adapter-specific, not a Paperclip-wide
+   constant.
+2. **Never set OMP `approvalMode` to anything but `yolo` headless.** `write` and
+   `prompt` make every exec tool fail while the run still exits 0 and reports
+   `succeeded` — and the server then auto-creates a corrective run, so it loops
+   until a budget cap stops it. This cost $5.57 in ~10 minutes.
+3. **Read every Paperclip write back.** A 200 can silently `delete` fields — with
+   `enableIsolatedWorkspaces` off, the isolation fields are dropped and the next
+   dispatch writes into the operator's uncommitted work.
+4. **A new config key must be added to `AGENT_MANAGED_KEYS` in `lib/plan.js`**, or
+   `factory apply` silently never writes it and the config is inert on the live
+   server.
+5. **Never embed a literal control byte in source.** A raw NUL in `lib/review.js`
+   made git treat it as binary and hid its diff for three commits.
+6. **A test that shares the code's assumption proves nothing.** Build fakes from
+   the shipped response shape, verified in `node_modules/@paperclipai/server/dist`.
+7. **`factory preflight` is free** — it launches real OMP with an invalid model.
+   Use it to check whether a config actually works instead of reasoning about it.
+8. **Some integration tests fail with `EPERM` only inside a managed agent
+   sandbox** (`spawnSync git EPERM`, bwrap netlink). On 2026-08-31 exactly three
+   files failed this way — `verifier`, `guard`, `promote` — and were fine outside
+   it. Re-run outside before believing a failure.
+9. **When mutation-testing, confirm the mutant actually landed in the file.** Two
+   checks here passed while testing nothing because the edit never applied.
+10. **A flag named `--check` is not evidence of a dry run.** `compile.sh --check`
+   really did live-publish before it was fixed. Read the code first.
+
 ## Standing constraints
 
 - `factory apply` has never been run; nothing live has ever been mutated.
