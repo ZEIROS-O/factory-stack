@@ -22,7 +22,7 @@ different products. See `docs/FACTORY_KNOWLEDGE.md` §5.
 
 ```bash
 git log --oneline -3
-npm test                                  # expect 136 pass, 0 fail
+npm test                                  # expect 139 pass, 0 fail
 bash instructions/compile.sh --check
 curl -s 127.0.0.1:3100/api/health
 node bin/factory plan                     # read-only

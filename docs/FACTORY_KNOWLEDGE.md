@@ -3,7 +3,7 @@
 **Canonical location:** `docs/FACTORY_KNOWLEDGE.md` in `~/factory-stack`. Any copy
 elsewhere (Downloads, OneDrive, a chat transcript) is a stale mirror.
 
-**Last verified:** 2026-09-01, against commit `74d3eff` and the live Paperclip
+**Last verified:** 2026-09-01, against commit `1eba349` and the live Paperclip
 instance at `127.0.0.1:3100`.
 
 ---
@@ -178,7 +178,7 @@ introduce a second task database or scheduler.
 - **Repository:** `/home/lucascoh/factory-stack`, branch `master`, commit
   `74d3eff`. The `feat/factory-finalization` worktree was merged
   (fast-forward) and is no longer the working location.
-- **Tests:** 136 pass, 0 fail, 0 skipped (`npm test`).
+- **Tests:** 139 pass, 0 fail, 0 skipped (`npm test`).
 - **Instruction bundles:** `instructions/compile.sh --check` clean.
 - **Live Paperclip:** healthy at `127.0.0.1:3100`. Company `ZEIROS`.
 - **`factory apply` has NEVER been run.** No `receipts/` directory exists, and
@@ -354,6 +354,12 @@ Also true and load-bearing:
   `ANTHROPIC_API_KEY` preserved. `bwrap` 0.6.1 works in this WSL environment.
 - **Backup restore** proven into a throwaway database, counts matched live,
   scratch DB dropped.
+- **Both agents launch.** `factory preflight ZEI-1` passes all four gates
+  against the real OMP binary, including `paperclip_review registered` — the
+  custom tool genuinely loads via the `extensions` key. The probe names an
+  invalid model, so it reaches argument validation and model resolution without
+  contacting a provider. **Nothing is billed; run it freely.** It is the cheapest
+  way to find out whether a config change actually works.
 
 ### NOT proven
 
