@@ -293,6 +293,15 @@ test("extraArgs is managed, so the Reviewer's --extension and --tools actually g
     "and the readback must assert it persisted");
 });
 
+test("adapter env is managed so model-family identity reaches paperclip_review", () => {
+  assert.ok(AGENT_MANAGED_KEYS.includes("env"));
+  const env = { FACTORY_ENGINEER_MODEL: "anthropic/x", FACTORY_REVIEWER_MODEL: "openai/y" };
+  const actions = [];
+  planAgents(reviewer({ command: "/x", env }), agentSnap({ command: "/x" }), actions);
+  assert.deepEqual(actions[0].body.adapterConfig.env, env);
+  assert.ok(actions[0].expect.some((e) => e.path === "adapterConfig.env"));
+});
+
 test("a managed key the config no longer declares is REMOVED from the live agent, not left behind", () => {
   const actions = [];
   planAgents(
