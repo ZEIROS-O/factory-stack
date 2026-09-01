@@ -22,13 +22,18 @@
 #   a tool the allowlist was supposed to withhold. Two independent mechanisms
 #   mean neither one alone is load-bearing.
 #
-#   THAT SECOND MECHANISM ONLY EXISTS IF IT IS IN extraArgs. It used to be
-#   declared as a bare `tools:` key in adapterConfig, which the adapter and the
-#   server both ignore — so the "two independent mechanisms" were one, and this
-#   file was the only thing standing between the Reviewer and write access.
-#   Worse, the adapter hardcodes `--tools read,bash,edit,write,grep,find,ls` and
-#   OMP lets the LAST --tools win, so without ours the Reviewer is handed bash,
-#   edit and write by default. `factory preflight` now proves the real argv.
+#   CORRECTED 2026-09-01. An earlier revision of this comment claimed the
+#   adapterConfig `tools:` key "the adapter and the server both ignore" and that
+#   the adapter hardcodes `--tools read,bash,edit,write,grep,find,ls`. Both are
+#   FALSE. They were measured against @paperclipai/adapter-pi-local, which
+#   serves `pi` — a different product from Oh My Pi. These agents run on
+#   @zhafron/paperclip-omp-adapter, which reads `tools` and emits --tools
+#   (execute.js:153) and hardcodes nothing.
+#
+#   The real risk is the opposite one: --tools is emitted ONLY when the key is
+#   non-empty. Drop it and no allowlist is passed at all, so OMP falls back to
+#   its own default tool set, which includes write access. `factory preflight`
+#   proves the real argv rather than trusting either claim.
 #
 #   `bash.patterns` governs the `bash` tool ONLY — `eval` spawns a shell through
 #   a different path, so both are denied below. Removing one without the other

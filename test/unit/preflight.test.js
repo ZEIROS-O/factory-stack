@@ -10,7 +10,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { checkAgentLaunch, checkVerifier, summarize } = require("../../lib/preflight");
+const { checkAgentLaunch, checkVerifier, summarize, adapterArgv } = require("../../lib/preflight");
 
 const REVIEWER_ARGS = [
   "--config", "/repo/omp/reviewer.policy.yml",
@@ -41,12 +41,63 @@ test("the launch gate passes only when OMP really registers the tool", () => {
   assert.equal(registered.ok, true);
 });
 
+test("the probe argv mirrors how the OMP adapter builds it from first-class keys", () => {
+  // @zhafron/paperclip-omp-adapter execute.js: configFiles->--config :188,
+  // extensions->--extension :190, pluginDirs->--plugin-dir :192, hooks->--hook
+  // :194, tools->--tools :153, skills->--skills :155, approvalMode :157,
+  // extraArgs appended last :215. A probe that reads only extraArgs proves
+  // nothing about a config that (correctly) uses the first-class keys.
+  const argv = adapterArgv({
+    configFiles: "/repo/omp/reviewer.policy.yml",
+    extensions: "/repo/omp/plugins/paperclip-review",
+    tools: "read,grep,paperclip_review",
+    approvalMode: "yolo",
+    extraArgs: ["--no-pty"],
+  });
+
+  assert.deepEqual(argv, [
+    "--tools", "read,grep,paperclip_review",
+    "--approval-mode", "yolo",
+    "--config", "/repo/omp/reviewer.policy.yml",
+    "--extension", "/repo/omp/plugins/paperclip-review",
+    "--no-pty",
+  ], "extraArgs must come last, exactly as the adapter appends it");
+});
+
+test("an agent armed through first-class keys is not reported as arming nothing", () => {
+  const r = checkAgentLaunch({
+    agentName: "OMP Engineer",
+    adapterConfig: { configFiles: "/repo/omp/engineer.policy.yml", hooks: "/repo/omp/worktree-guard.js" },
+    exec: reachedModel,
+  });
+  assert.equal(r.ok, true, r.detail);
+});
+
+test("the required tool is found in the first-class tools key, not only in extraArgs", () => {
+  const ok = checkAgentLaunch({
+    agentName: "OMP Reviewer",
+    adapterConfig: { tools: "read,grep,paperclip_review" },
+    requireTool: "paperclip_review",
+    exec: reachedModel,
+  });
+  assert.equal(ok.ok, true, ok.detail);
+
+  const missing = checkAgentLaunch({
+    agentName: "OMP Reviewer",
+    adapterConfig: { tools: "read,grep" },
+    requireTool: "paperclip_review",
+    exec: reachedModel,
+  });
+  assert.equal(missing.ok, false, "a Reviewer with no write-capable tool must fail the gate");
+});
+
 test("the launch gate fails an agent that arms nothing", () => {
-  // The exact shape of the bug this gate was rewritten for: adapterConfig
-  // declared configFiles/hooks/tools/pluginDirs, none of which reach OMP.
-  const r = checkAgentLaunch({ agentName: "OMP Engineer", extraArgs: [], exec: reachedModel });
-  assert.equal(r.ok, false, "no extraArgs means no policy and no hook reach OMP");
-  assert.match(r.detail, /extraArgs/);
+  // An adapterConfig that declares no policy, hook, tool or extension produces
+  // an empty argv, so the agent would launch on the CLI's own defaults — which
+  // for the Reviewer means regaining write access.
+  const r = checkAgentLaunch({ agentName: "OMP Engineer", adapterConfig: {}, exec: reachedModel });
+  assert.equal(r.ok, false, "an empty adapterConfig arms nothing");
+  assert.match(r.detail, /nothing reaches OMP|defaults/);
 });
 
 test("the launch gate fails when the required tool is absent from the configured allowlist", () => {
