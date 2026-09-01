@@ -271,9 +271,10 @@ test("document and instruction upserts fail on the broader 200-and-do-nothing AP
 });
 
 // ── agent adapterConfig: what actually reaches the OMP CLI ──────────────────
-// extraArgs is the ONLY adapterConfig key adapter-pi-local reads. A key that is
-// not managed here is never written, and a retired key that is never removed
-// goes on describing a boundary that arms nothing.
+// These agents run on @zhafron/paperclip-omp-adapter, which builds OMP argv
+// from FIRST-CLASS keys (configFiles/extensions/hooks/tools/skills/
+// approvalMode) and appends extraArgs last. A key that is not managed here is
+// silently never written, so a boundary declared in config arms nothing.
 const { planAgents, AGENT_MANAGED_KEYS } = require("../../lib/plan");
 
 const agentSnap = (liveAdapterConfig) => ({ agents: { "OMP Reviewer": { id: "a1", adapterConfig: liveAdapterConfig } } });
@@ -291,6 +292,39 @@ test("extraArgs is managed, so the Reviewer's --extension and --tools actually g
   assert.deepEqual(actions[0].body.adapterConfig.extraArgs, args);
   assert.ok(actions[0].expect.some((e) => e.path === "adapterConfig.extraArgs"),
     "and the readback must assert it persisted");
+});
+
+test("every adapterConfig key the OMP adapter turns into a flag is managed", () => {
+  // @zhafron/paperclip-omp-adapter dist/server/execute.js: tools->--tools (:153),
+  // skills->--skills (:155), approvalMode->--approval-mode (:156),
+  // configFiles->--config (:187), extensions->--extension (:189),
+  // pluginDirs->--plugin-dir (:191), hooks->--hook (:193).
+  // Unmanaged means never written: the policy overlay and the read-only tool
+  // list would be declared here and absent on the live agent.
+  for (const k of ["tools", "skills", "approvalMode", "autoApprove",
+                   "configFiles", "extensions", "pluginDirs", "hooks"]) {
+    assert.ok(AGENT_MANAGED_KEYS.includes(k), `${k} builds an OMP flag and must be managed`);
+  }
+});
+
+test("the Reviewer's read-only boundary and plugin path are written as first-class keys", () => {
+  const cfg = {
+    command: "/x",
+    configFiles: "/repo/omp/reviewer.policy.yml",
+    extensions: "/repo/omp/plugins/paperclip-review",
+    tools: "read,grep,glob,lsp,todo,paperclip_review",
+  };
+  const actions = [];
+  planAgents(reviewer(cfg), agentSnap({ command: "/x" }), actions);
+
+  assert.equal(actions.length, 1);
+  const sent = actions[0].body.adapterConfig;
+  assert.equal(sent.tools, cfg.tools);
+  assert.equal(sent.extensions, cfg.extensions);
+  assert.equal(sent.configFiles, cfg.configFiles);
+  for (const path of ["adapterConfig.tools", "adapterConfig.extensions", "adapterConfig.configFiles"]) {
+    assert.ok(actions[0].expect.some((e) => e.path === path), `${path} must be verified on readback`);
+  }
 });
 
 test("adapter env is managed so model-family identity reaches paperclip_review", () => {
