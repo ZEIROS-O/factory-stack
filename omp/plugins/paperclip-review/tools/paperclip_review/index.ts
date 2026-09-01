@@ -1,9 +1,42 @@
 // paperclip_review — the Reviewer's ONLY write-capable tool.
 //
-// DISCOVERY. OMP scans <pluginDir>/tools/<name>/index.ts and takes the tool name
-// from the DIRECTORY name, so this directory must stay `paperclip_review` to
-// match the `tools:` allowlist in factory.config.json. Renaming the directory
-// silently removes the tool from the allowlist rather than erroring.
+// DISCOVERY — TWO FACTS, BOTH VERIFIED AGAINST OMP'S SHIPPED SOURCE.
+//
+// OMP ships its TypeScript sources under the installed package's `src/`; read
+// those rather than probing the minified dist. There are THREE tool providers
+// and their layouts are NOT interchangeable:
+//
+//   omp-plugins   <- `--extension <dir>`  scans <dir>/tools/, accepts BOTH
+//                    flat files and <name>/index.ts, name from the DIRECTORY
+//                    (discovery/omp-plugins.ts:248)
+//   claude-plugins<- `--plugin-dir <dir>` scans <dir>/tools/*.{ts,js} ONLY —
+//                    a non-recursive glob, name from the FILENAME
+//                    (discovery/claude-plugins.ts:407)
+//   builtin       <- ~/.omp/agent/tools, <cwd>/.omp/tools (shared global state)
+//
+// This tool uses the nested layout, so it MUST be reached with `--extension`.
+// Under `--plugin-dir` the nested directory is invisible to the glob and the
+// run dies at startup with `Unknown tool in --tools: paperclip_review`. That
+// pairing is the trap; it is not an OMP limitation.
+//
+// The flag reaches OMP through the Paperclip adapter's `extraArgs`, which is
+// the ONLY adapterConfig key that reaches the CLI. adapter-pi-local reads just
+// command/model/thinking/cwd/env/timeoutSec/graceSec/instructionsFilePath/
+// promptTemplate/extraArgs; `pluginDirs`, `tools`, `configFiles` and `hooks`
+// are silently ignored. See the comment in factory.config.json.
+//
+// Renaming this directory renames the tool, and the `--tools` allowlist in
+// factory.config.json must be renamed with it.
+//
+// THIS MODULE IS EXECUTED AT DISCOVERY, NOT MERELY READ. Anything that throws
+// while loading it makes OMP drop the tool SILENTLY — the only symptom is the
+// same `Unknown tool in --tools` error, which reads as "OMP cannot do this"
+// rather than "this file failed to load". FACTORY_ROOT below is five levels up
+// (paperclip_review -> tools -> paperclip-review -> plugins -> omp -> repo);
+// it was four, which resolved to <repo>/omp, so every require below threw and
+// the tool vanished without a word. The assertion under it turns that class of
+// mistake into a legible message, and `factory preflight` proves real
+// registration so it cannot pass unnoticed again.
 //
 // THIS FILE IS DELIBERATELY THIN. Every rule that decides whether work is
 // approved lives in lib/review.js, where node:test can drive it directly and
@@ -23,12 +56,25 @@
 
 import { createRequire } from "node:module";
 import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import type { CustomToolFactory } from "@oh-my-pi/pi-coding-agent";
 
 // The factory's own modules are CommonJS; this plugin is loaded as ESM.
 const require_ = createRequire(import.meta.url);
-const FACTORY_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../..");
+const FACTORY_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../..");
+
+// Fail with a legible reason rather than a bare MODULE_NOT_FOUND. Either way OMP
+// drops the tool silently, so this message is for whoever reads the run log or
+// runs the file by hand — the machine-checkable version of this is the
+// registration probe in `factory preflight`.
+if (!existsSync(path.join(FACTORY_ROOT, "lib/review.js"))) {
+  throw new Error(
+    `paperclip_review: FACTORY_ROOT resolved to ${FACTORY_ROOT}, which contains no lib/review.js. ` +
+      `This file must sit at <repo>/omp/plugins/paperclip-review/tools/paperclip_review/index.ts ` +
+      `so that five levels up is the repository root. If the plugin moved, fix the depth here.`,
+  );
+}
 
 const { submitReview } = require_(path.join(FACTORY_ROOT, "lib/review.js"));
 const { PaperclipApi } = require_(path.join(FACTORY_ROOT, "lib/api.js"));

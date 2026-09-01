@@ -269,3 +269,72 @@ test("document and instruction upserts fail on the broader 200-and-do-nothing AP
   }), /200-and-do-nothing/);
   assert.deepEqual(calls, ["GET", "PUT", "GET"]);
 });
+
+// ── agent adapterConfig: what actually reaches the OMP CLI ──────────────────
+// extraArgs is the ONLY adapterConfig key adapter-pi-local reads. A key that is
+// not managed here is never written, and a retired key that is never removed
+// goes on describing a boundary that arms nothing.
+const { planAgents, AGENT_MANAGED_KEYS } = require("../../lib/plan");
+
+const agentSnap = (liveAdapterConfig) => ({ agents: { "OMP Reviewer": { id: "a1", adapterConfig: liveAdapterConfig } } });
+const reviewer = (adapterConfig) => ({ agents: [{ name: "OMP Reviewer", role: "reviewer", adapterConfig }] });
+
+test("extraArgs is managed, so the Reviewer's --extension and --tools actually get written", () => {
+  assert.ok(AGENT_MANAGED_KEYS.includes("extraArgs"),
+    "an unmanaged key is silently never written; this is what made the plugin fix inert");
+
+  const args = ["--extension", "/repo/omp/plugins/paperclip-review", "--tools", "read,paperclip_review"];
+  const actions = [];
+  planAgents(reviewer({ command: "/x", extraArgs: args }), agentSnap({ command: "/x" }), actions);
+
+  assert.equal(actions.length, 1);
+  assert.deepEqual(actions[0].body.adapterConfig.extraArgs, args);
+  assert.ok(actions[0].expect.some((e) => e.path === "adapterConfig.extraArgs"),
+    "and the readback must assert it persisted");
+});
+
+test("a managed key the config no longer declares is REMOVED from the live agent, not left behind", () => {
+  const actions = [];
+  planAgents(
+    reviewer({ command: "/x", extraArgs: ["--tools", "read"] }),
+    // The live record still carries the inert keys from a previous apply.
+    agentSnap({ command: "/x", pluginDirs: "/repo/omp/plugins/paperclip-review", tools: "read,paperclip_review" }),
+    actions,
+  );
+
+  assert.equal(actions.length, 1);
+  const sent = actions[0].body.adapterConfig;
+  assert.ok(!("pluginDirs" in sent), "a retired key must be cleared, not silently preserved");
+  assert.ok(!("tools" in sent));
+
+  // And the removal must be verified on readback, not assumed.
+  const removalCheck = actions[0].expect.find((e) => e.path === "adapterConfig.pluginDirs");
+  assert.ok(removalCheck?.compare, "removal needs a readback assertion of its own");
+  assert.equal(removalCheck.compare(undefined), true);
+  assert.equal(removalCheck.compare("/repo/omp/plugins/paperclip-review"), false,
+    "a server that keeps the key must fail the apply");
+});
+
+test("a live agent already matching the config produces no action", () => {
+  const actions = [];
+  const cfgArgs = ["--tools", "read,paperclip_review"];
+  planAgents(reviewer({ command: "/x", extraArgs: cfgArgs }), agentSnap({ command: "/x", extraArgs: [...cfgArgs] }), actions);
+  assert.equal(actions.length, 0, "reconciliation must be idempotent");
+});
+
+test("a stale retired key is drift ON ITS OWN, even when everything else already matches", () => {
+  // The real post-fix state: config and live agree on every declared key, and the
+  // only difference is the inert `pluginDirs` left over from an earlier apply.
+  // If removal is not itself drift, no action is produced and the misleading key
+  // stays on the live record forever.
+  const actions = [];
+  const cfgArgs = ["--tools", "read,paperclip_review"];
+  planAgents(
+    reviewer({ command: "/x", extraArgs: cfgArgs }),
+    agentSnap({ command: "/x", extraArgs: [...cfgArgs], pluginDirs: "/repo/omp/plugins/paperclip-review" }),
+    actions,
+  );
+  assert.equal(actions.length, 1, "a leftover retired key must be reconciled away on its own");
+  assert.ok(!("pluginDirs" in actions[0].body.adapterConfig));
+  assert.match(actions[0].what, /removing pluginDirs/);
+});
