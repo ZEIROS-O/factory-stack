@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Compile src/ into three SELF-CONTAINED AGENTS.md files.
+# Compile src/ into three project-specific AGENTS.md files.
 #
-#   delivered AGENTS.md = platform contract (verbatim) + shared doctrine + role section
+#   delivered AGENTS.md = shared factory doctrine + role section
 #
-# There is deliberately no runtime dependency on any secondary instruction file.
-# Silent non-delivery of a second file is unacceptable, so the doctrine is
-# duplicated into all three outputs at build time instead of referenced.
+# The Paperclip adapter owns the platform contract. Copying it here duplicates
+# and can contradict the adapter's current contract. The factory doctrine is
+# still compiled into each output so no secondary project file must be loaded.
 #
 # This compiler NEVER publishes. Live publication is a declarative factory
 # reconciliation action with exact readback and an immutable receipt.
@@ -21,14 +21,12 @@ case "$mode" in --write|--check) ;; *) echo "usage: $0 [--write|--check]" >&2; e
 
 roles=(hermes engineer reviewer)
 
-contract_bytes="$(wc -c < "$S/_platform_contract.md")"
-
 verify_bundle() {
   local role="$1" out="$2"
 
-  # The platform contract must survive byte-for-byte as the file's prefix.
-  if ! head -c "$contract_bytes" "$out" | cmp -s - "$S/_platform_contract.md"; then
-    echo "FATAL: $role platform contract is not verbatim" >&2
+  # The platform contract is injected by Paperclip and must not be copied here.
+  if grep -q '^You are an agent at Paperclip company\.$' "$out"; then
+    echo "FATAL: $role duplicates the adapter-owned Paperclip contract" >&2
     exit 1
   fi
 
@@ -45,7 +43,7 @@ if [[ "$mode" == "--check" ]]; then
   for role in "${roles[@]}"; do
     out="$O/AGENTS.$role.md"
     [[ -f "$out" ]] || { echo "instruction output missing: $out" >&2; exit 1; }
-    if ! cmp -s <(cat "$S/_platform_contract.md" "$S/_doctrine.md" "$S/_role_$role.md") "$out"; then
+    if ! cmp -s <(cat "$S/_doctrine.md" "$S/_role_$role.md") "$out"; then
       echo "instruction bundle drift: out/AGENTS.$role.md is out of date" >&2
       exit 1
     fi
@@ -68,7 +66,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf -- "$tmp"' EXIT
 for role in "${roles[@]}"; do
   out="$tmp/AGENTS.$role.md"
-  cat "$S/_platform_contract.md" "$S/_doctrine.md" "$S/_role_$role.md" > "$out"
+  cat "$S/_doctrine.md" "$S/_role_$role.md" > "$out"
   verify_bundle "$role" "$out"
 done
 for role in "${roles[@]}"; do

@@ -50,32 +50,64 @@ test("the issue names a responsible human, without whom exhaustion silently loop
   assert.ok(cfg.operator?.key === "operator", "the responsible user must resolve to the declared operator");
 });
 
-test("reconciliation manages responsibleUserId, so the escalation target cannot drift away unnoticed", () => {
-  const cfg = load(CONFIG);
-  const snap = {
+// This test previously asserted that the reconciler PATCHes responsibleUserId.
+// It passed only because its fake server accepted every field. The real server
+// cannot: `updateIssueSchema` explicitly omits responsibleUserId
+// (packages/shared/src/validators/issue.ts:555), so the field is stripped from
+// the payload and the request is answered 200 with the value unchanged. The
+// escalation target is settable ONLY at issue creation.
+//
+// The invariant is unchanged — the escalation target must not drift away
+// unnoticed — but it can only be enforced by refusing to plan, since no write
+// exists that could carry it.
+function snapWithResponsible(cfg, responsibleUserId) {
+  return {
     issues: {
       "ZEI-1": {
         id: "issue-1", projectId: "p1", goalId: "g1",
         reviewPolicy: "not_creator", assigneeAgentId: "a1",
-        responsibleUserId: null,                     // the silent-loop state
+        responsibleUserId,
         executionWorkspacePreference: "isolated_workspace",
         executionWorkspaceSettings: cfg.issues[0].executionWorkspaceSettings,
         executionPolicy: null,
         assigneeAdapterOverrides: cfg.issues[0].assigneeAdapterOverrides,
       },
     },
+    issueDocuments: { "ZEI-1": {} },
     projects: { "X-Bookmarks": { live: { id: "p1" } } },
     goals: { autonomy: { id: "g1" } },
     agents: { "OMP Engineer": { id: "a1" }, "OMP Reviewer": { id: "a2" } },
     operator: { userId: "user-operator" },
   };
+}
 
+test("a NULL responsibleUserId — the silent-loop state — halts planning instead of planning a doomed PATCH", () => {
+  const cfg = load(CONFIG);
+  assert.throws(() => planIssues(cfg, snapWithResponsible(cfg, null), []), (err) => {
+    assert.match(err.message, /settable only at issue creation/);
+    assert.match(err.message, /Recreate the issue/);
+    return true;
+  }, "the escalation target must never be silently left null");
+});
+
+test("a responsibleUserId pointing at the WRONG principal also halts planning", () => {
+  const cfg = load(CONFIG);
+  // The membership-uuid bug produced exactly this shape: a plausible uuid that
+  // is not a user. It must not be quietly tolerated.
+  assert.throws(
+    () => planIssues(cfg, snapWithResponsible(cfg, "43dc167f-8cb9-4d8e-b6dc-207a742bf87e"), []),
+    /settable only at issue creation/,
+  );
+});
+
+test("a correct responsibleUserId never appears in a PATCH body", () => {
+  const cfg = load(CONFIG);
   const actions = [];
-  planIssues(cfg, snap, actions);
-  assert.equal(actions.length, 1, "a missing responsible user must be planned as drift, not ignored");
-  const a = actions[0];
-  assert.ok(a.allow.includes("responsibleUserId"), "responsibleUserId must be writable by the reconciler");
-  assert.equal(a.body.responsibleUserId, "user-operator");
-  assert.ok(a.expect.some((e) => e.path === "responsibleUserId" && e.value === "user-operator"),
-    "and must be verified by readback like every other managed field");
+  planIssues(cfg, snapWithResponsible(cfg, "user-operator"), actions);
+  for (const a of actions) {
+    assert.ok(!("responsibleUserId" in (a.body ?? {})),
+      "a field the server strips must never be written; it would fail readback every time");
+    assert.ok(!(a.expect ?? []).some((e) => e.path === "responsibleUserId"),
+      "and must not be asserted on readback of a write that never carried it");
+  }
 });

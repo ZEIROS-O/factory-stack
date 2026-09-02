@@ -80,6 +80,7 @@ const { submitReview } = require_(path.join(FACTORY_ROOT, "lib/review.js"));
 const { PaperclipApi } = require_(path.join(FACTORY_ROOT, "lib/api.js"));
 const { loadContract, verifyObjectiveHashes } = require_(path.join(FACTORY_ROOT, "lib/contracts.js"));
 const { computeChangeSet, computeDiffHash } = require_(path.join(FACTORY_ROOT, "lib/promote.js"));
+const { loadExecutionReceiptForReview } = require_(path.join(FACTORY_ROOT, "lib/execution-receipt.js"));
 
 const VERIFIER = path.join(FACTORY_ROOT, "ops/omp-verify-bwrap.sh");
 
@@ -136,6 +137,8 @@ const factory: CustomToolFactory = pi => ({
     const head = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
     const api = new PaperclipApi(env.PAPERCLIP_API_URL, { authToken: env.PAPERCLIP_API_KEY });
+    const issue = await api.get(`/api/issues/${encodeURIComponent(env.PAPERCLIP_TASK_ID ?? "")}`);
+    const loadedReceipt = await loadExecutionReceiptForReview({ api, issue, objective });
 
     const result = await submitReview({
       env,
@@ -152,13 +155,10 @@ const factory: CustomToolFactory = pi => ({
         headCommit: head,
         diffHash: computeDiffHash(changeSet),
         changedPaths: changeSet.paths.map((p: { path: string }) => p.path),
+        paths: changeSet.paths,
       },
-      // The engineer's receipt. Passed through as-is — including undefined —
-      // so submitReview refuses when there is none. A default here (the hash of
-      // the empty string is still a well-formed sha256) would satisfy the
-      // fail-closed check with a value that binds the assessment to nothing.
-      executionReceiptHash: env.FACTORY_EXECUTION_RECEIPT_HASH,
-      round: Number(env.FACTORY_REVIEW_ROUND ?? "1"),
+      executionReceipt: loadedReceipt.receipt,
+      round: Number(issue.executionState?.changesRequestedCount ?? 0) + 1,
       limits: objective.limits,
     });
 

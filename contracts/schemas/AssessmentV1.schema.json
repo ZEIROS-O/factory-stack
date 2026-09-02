@@ -4,11 +4,12 @@
   "title": "AssessmentV1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "assessmentId", "objective", "executionReceiptHash", "reviewer", "repository", "deterministicResults", "criteria", "overallVerdict", "assessedAt"],
+  "required": ["schemaVersion", "assessmentId", "objective", "executionRunId", "executionReceiptHash", "reviewer", "repository", "deterministicResults", "criteria", "overallVerdict", "assessedAt"],
   "properties": {
     "schemaVersion": { "const": "AssessmentV1" },
     "assessmentId": { "type": "string", "minLength": 1 },
     "objective": { "$ref": "#/definitions/objectiveRef" },
+    "executionRunId": { "type": "string", "minLength": 1 },
     "executionReceiptHash": { "$ref": "#/definitions/hash" },
     "reviewer": {
       "type": "object", "additionalProperties": false,

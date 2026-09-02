@@ -11,10 +11,10 @@
     "objective": { "$ref": "#/definitions/objectiveRef" },
     "execution": {
       "type": "object", "additionalProperties": false,
-      "required": ["sessionId", "sessionPath", "workspace", "branch", "baseCommit", "headCommit", "startedAt", "finishedAt", "durationSeconds"],
+      "required": ["runId", "sessionId", "workspace", "branch", "baseCommit", "headCommit", "startedAt", "finishedAt", "durationSeconds"],
       "properties": {
-        "sessionId": { "type": "string", "minLength": 1 },
-        "sessionPath": { "type": "string", "pattern": "^/" },
+        "runId": { "type": "string", "minLength": 1 },
+        "sessionId": { "type": ["string", "null"] },
         "workspace": { "type": "string", "pattern": "^/" },
         "branch": { "type": "string", "pattern": "^paperclip/" },
         "baseCommit": { "$ref": "#/definitions/commit" },
@@ -37,7 +37,7 @@
             "required": ["path", "sha256"],
             "properties": {
               "path": { "type": "string", "minLength": 1, "not": { "pattern": "^/|(^|/)\\.\\.(/|$)" } },
-              "sha256": { "$ref": "#/definitions/hash" }
+              "sha256": { "oneOf": [{ "$ref": "#/definitions/hash" }, { "type": "null" }] }
             }
           }
         }
@@ -64,8 +64,8 @@
     "warnings": { "$ref": "#/definitions/textArray" },
     "usage": {
       "oneOf": [
-        { "type": "object", "additionalProperties": false, "required": ["costStatus", "costUsd"], "properties": { "costStatus": { "const": "known" }, "costUsd": { "type": "number", "minimum": 0 } } },
-        { "type": "object", "additionalProperties": false, "required": ["costStatus", "costUsd"], "properties": { "costStatus": { "const": "unknown" }, "costUsd": { "type": "null" } } }
+        { "type": "object", "additionalProperties": false, "required": ["costStatus", "costUsd", "costCeilingUsd"], "properties": { "costStatus": { "const": "known" }, "costUsd": { "type": "number", "minimum": 0 }, "costCeilingUsd": { "type": "number", "exclusiveMinimum": 0 } } },
+        { "type": "object", "additionalProperties": false, "required": ["costStatus", "costUsd", "costCeilingUsd"], "properties": { "costStatus": { "const": "unknown" }, "costUsd": { "type": "null" }, "costCeilingUsd": { "type": "number", "exclusiveMinimum": 0 } } }
       ]
     },
     "terminal": {

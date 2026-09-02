@@ -34,21 +34,22 @@ after a fresh backup has been restore-proven with `scripts/prove-restore.sh`.
 
 ## Agents
 
-| Agent | Runtime | Model | Tools | Skills |
-|---|---|---|---|---|
-| Hermes Generalist | `hermes_local` | `claude-opus-5` | all | all 39 (adapter forces this) |
-| OMP Engineer | `omp_local` | `anthropic/claude-opus-5` | all | 12 implementation |
-| OMP Reviewer | `omp_local` | `openai-codex/gpt-5.6-sol` | 6, read-only | 5 verification |
+`factory.config.json` is the source of truth for configured agents, adapters,
+models, tools, instruction bundles, and budgets. The current desired state
+declares OMP Engineer and OMP Reviewer. A Hermes instruction source is retained
+as a dormant role template but is not currently configured for reconciliation.
 
-Producer and reviewer sit in different model families on purpose. A reviewer of
-the same family as the producer is not independent, whatever the transport.
+The intended producer/reviewer boundary uses separate model families and a
+narrow read-only reviewer tool surface. Runtime provenance still needs to be
+verified from actual runs; configuration alone is not evidence of independence.
 
 ## Instructions
 
-Each delivered `AGENTS.md` is **self-contained**: Paperclip's platform contract
-verbatim, then the shared doctrine, then one role section. The doctrine is
-duplicated into all three at build time rather than referenced, because silent
-non-delivery of a secondary file is unacceptable.
+Paperclip's active adapter supplies the platform contract. Each compiled
+`AGENTS.md` contains only the project-specific factory doctrine and one role
+section; copying the platform contract here would duplicate it and allow it to
+drift. The doctrine is compiled into every bundle so no secondary project file
+must be loaded at runtime.
 
 ```bash
 bash instructions/compile.sh --write   # edit src/, then always run this
@@ -62,9 +63,9 @@ to the compiled bytes verified against the committed manifest at load time, and
 `factory apply` upserts the live instruction files with exact semantic readback
 plus an immutable receipt.
 
-`compile.sh` hard-fails if the platform contract stops being a byte-exact prefix,
-if any output starts referencing an external instruction file, if a generated
-bundle or the manifest has drifted, or if `--check` would need to write anything.
+`compile.sh` hard-fails if a bundle copies the adapter-owned platform contract,
+references an external instruction file, drifts from its sources or manifest,
+or if `--check` would need to write anything.
 
 ## Known gaps
 
@@ -107,7 +108,6 @@ bundle or the manifest has drifted, or if `--check` would need to write anything
 
 ## Budgets
 
-Company $100/mo; Hermes $30, Engineer $40, Reviewer $20 — all `hardStop`, warn at
-80%. Agent budgets sum under the company cap so an agent trips its own ceiling
-first. The provider-side OpenRouter cap is the real backstop: it covers spend
-Paperclip never sees, including your own terminal sessions.
+Budget policy is declared in `factory.config.json` and enforced by Paperclip and
+provider-side limits. Read the current configuration and live ledger rather than
+copying amounts from documentation; unknown or unreconciled cost is not zero.

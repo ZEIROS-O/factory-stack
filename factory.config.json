@@ -101,14 +101,14 @@
           "below are inert.",
           "",
           "The adapter builds OMP argv from these keys in dist/server/execute.js:",
-          "configFiles -> --config (:187), extensions -> --extension (:189),",
-          "pluginDirs -> --plugin-dir (:191), hooks -> --hook (:193),",
+          "configFiles -> --config (:188), extensions -> --extension (:190),",
+          "pluginDirs -> --plugin-dir (:192), hooks -> --hook (:194),",
           "tools -> --tools (:153), skills -> --skills (:155),",
-          "approvalMode -> --approval-mode (:156). extraArgs is appended LAST",
-          "(:216), so it is an escape hatch for flags with no key, not the only",
+          "approvalMode -> --approval-mode (:157). extraArgs is appended LAST",
+          "(:215), so it is an escape hatch for flags with no key, not the only",
           "route. Nothing is hardcoded.",
           "",
-          "autoApprove DEFAULTS TO TRUE (:158): with no valid approvalMode the",
+          "autoApprove DEFAULTS TO TRUE (:159): with no valid approvalMode the",
           "adapter pushes --auto-approve by itself. Both are set explicitly here",
           "so the value is declared rather than inherited from a default.",
           "",
@@ -224,6 +224,8 @@
 
       "executionPolicy": {
         "$comment_maxReviewRounds": "DECLARED HERE BECAUSE THIS IS WHERE THE SERVER LOOKS. resolveMaxReviewRounds(policy) reads policy.maxReviewRounds (issue-execution-policy.js:336) and falls back to DEFAULT_MAX_REVIEW_ROUNDS = 3 (:9). The copy under issues[].limits is the factory's own promote-time gate; it is never sent to the server, so declaring the ceiling only there would leave the live instance running 3 rounds while the config appeared to say 2.",
+        "$comment_commentRequired": "DECLARED BECAUSE THE SERVER DEFAULTS IT. issueExecutionPolicySchema has commentRequired: z.boolean().optional().default(true), so a policy that omits it comes back from readback carrying it, and the reconciler reports drift that no config edit can clear. Declaring the value we actually want — every review and approval decision must carry a body — makes desired state complete instead of teaching the comparator to ignore a real policy knob.",
+        "commentRequired": true,
         "maxReviewRounds": 2,
         "mode": "normal",
         "stages": [

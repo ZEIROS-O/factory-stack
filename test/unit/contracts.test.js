@@ -42,7 +42,7 @@ test("ExecutionReceiptV1 supports an uncommitted handoff only with exact diff an
       criteriaHash: "sha256:" + "2".repeat(64),
     },
     execution: {
-      sessionId: "session-001", sessionPath: "/tmp/session-001",
+      runId: "run-001", sessionId: "session-001",
       workspace: "/worktrees/ZEI-1", branch: "paperclip/ZEI-1",
       baseCommit: "3cb8238", headCommit: "3cb8238",
       startedAt: "2026-08-31T12:00:00.000Z", finishedAt: "2026-08-31T12:10:00.000Z",
@@ -61,7 +61,7 @@ test("ExecutionReceiptV1 supports an uncommitted handoff only with exact diff an
     observations: ["head equals base because the sandbox cannot write shared Git objects"],
     conclusions: ["the worktree diff is ready for review"],
     unresolvedConditions: [], warnings: [],
-    usage: { costStatus: "known", costUsd: 1.25 },
+    usage: { costStatus: "known", costUsd: 1.25, costCeilingUsd: 4 },
     terminal: { status: "ready_for_review", stopReason: "acceptance checks passed" },
   };
   assert.doesNotThrow(() => validateContract("ExecutionReceiptV1", receipt));
@@ -73,10 +73,10 @@ test("ExecutionReceiptV1 represents unknown cost explicitly rather than as zero"
   const receipt = {
     schemaVersion: "ExecutionReceiptV1", receiptId: "attempt-002",
     objective: { objectiveId: "ZEI-1", revision: 1, objectiveHash: "sha256:" + "1".repeat(64), criteriaHash: "sha256:" + "2".repeat(64) },
-    execution: { sessionId: "s", sessionPath: "/tmp/s", workspace: "/w", branch: "paperclip/ZEI-1", baseCommit: "3cb8238", headCommit: "3cb8238", startedAt: "2026-08-31T12:00:00.000Z", finishedAt: "2026-08-31T12:00:01.000Z", durationSeconds: 1 },
+    execution: { runId: "run-002", sessionId: "s", workspace: "/w", branch: "paperclip/ZEI-1", baseCommit: "3cb8238", headCommit: "3cb8238", startedAt: "2026-08-31T12:00:00.000Z", finishedAt: "2026-08-31T12:00:01.000Z", durationSeconds: 1 },
     changes: { committed: false, diffHash: "sha256:" + "3".repeat(64), paths: [] },
     checks: [], observations: [], conclusions: [], unresolvedConditions: [], warnings: [],
-    usage: { costStatus: "unknown", costUsd: null },
+    usage: { costStatus: "unknown", costUsd: null, costCeilingUsd: 4 },
     terminal: { status: "blocked", stopReason: "provider did not report cost" },
   };
   assert.doesNotThrow(() => validateContract("ExecutionReceiptV1", receipt));
@@ -88,6 +88,7 @@ test("AssessmentV1 requires one structured criterion verdict and argv results", 
   const assessment = {
     schemaVersion: "AssessmentV1", assessmentId: "assessment-001",
     objective: { objectiveId: "ZEI-1", revision: 1, objectiveHash: "sha256:" + "1".repeat(64), criteriaHash: "sha256:" + "2".repeat(64) },
+    executionRunId: "run-001",
     executionReceiptHash: "sha256:" + "3".repeat(64),
     reviewer: { agentName: "OMP Reviewer", modelFamily: "openai-codex" },
     repository: { baseCommit: "3cb8238", headCommit: "3cb8238", diffHash: "sha256:" + "4".repeat(64), changedPaths: ["bin/view.py"] },

@@ -35,10 +35,23 @@ const OBJECTIVE = {
     { id: "ZEI-1-AC-02", command: { argv: ["python3", "-m", "pytest", "-q", "tests/x.py"], cwd: "." } },
   ],
 };
+const EXECUTION_RECEIPT = {
+  schemaVersion: "ExecutionReceiptV1", receiptId: "engineer-run-1",
+  objective: { objectiveId: "ZEI-1", revision: 1, objectiveHash: OBJECTIVE.objectiveHash, criteriaHash: OBJECTIVE.criteriaHash },
+  execution: {
+    runId: "engineer-run-1", sessionId: "omp-1", workspace: ENV.PAPERCLIP_WORKSPACE_WORKTREE_PATH,
+    branch: ENV.PAPERCLIP_WORKSPACE_BRANCH, baseCommit: "3cb8238", headCommit: "3cb8238",
+    startedAt: "2026-08-31T10:00:00.000Z", finishedAt: "2026-08-31T10:01:00.000Z", durationSeconds: 60,
+  },
+  changes: { committed: false, diffHash: "sha256:" + "d".repeat(64), paths: [{ path: "bin/view.py", sha256: "sha256:" + "c".repeat(64) }] },
+  checks: [], observations: [], conclusions: [], unresolvedConditions: [], warnings: [],
+  usage: { costStatus: "known", costUsd: 1, costCeilingUsd: 4 },
+  terminal: { status: "ready_for_review", stopReason: "complete" },
+};
 
 // A Paperclip that behaves like the shipped one: `body` on the wire, a fresh
 // revision id per document write, and a stage decision that REQUIRES a comment.
-function server({ assessment = null, issue = { id: "issue-uuid-1", status: "in_review" } } = {}) {
+function server({ assessment = null, issue = { id: "issue-uuid-1", status: "in_review", executionState: { currentStageType: "review", currentParticipant: { type: "agent", agentId: "reviewer-1" } } } } = {}) {
   const state = { assessment, issue: { ...issue }, calls: [], auth: [] };
   const fetchImpl = async (url, opts = {}) => {
     const method = opts.method ?? "GET";
@@ -77,7 +90,11 @@ function server({ assessment = null, issue = { id: "issue-uuid-1", status: "in_r
         if (!body.comment?.trim()) {
           return { ok: false, status: 422, text: async () => JSON.stringify({ error: "Approving a review or approval stage requires a comment." }) };
         }
-        state.issue = { ...state.issue, status: body.status };
+        state.issue = body.status === "done"
+          ? { ...state.issue, status: "in_review", executionState: { currentStageType: "approval", currentParticipant: { type: "user", userId: "operator-1" } } }
+          : /Escalating/.test(body.comment)
+            ? { ...state.issue, status: "in_review", executionState: { currentStageType: "review", currentParticipant: { type: "user", userId: "operator-1" } } }
+            : { ...state.issue, status: "in_progress", executionState: { currentStageType: "review", status: "changes_requested" } };
         return { ok: true, status: 200, text: async () => JSON.stringify(state.issue) };
       }
     }
@@ -103,10 +120,11 @@ function call(overrides = {}) {
       verifierPath: "/factory/ops/omp-verify-bwrap.sh",
       exec: overrides.exec ?? passingExec,
       round: 1,
-      executionReceiptHash: "sha256:" + "e".repeat(64),
+      executionReceipt: EXECUTION_RECEIPT,
       changeSet: {
         baseCommit: "3cb8238", headCommit: "3cb8238",
         diffHash: "sha256:" + "d".repeat(64), changedPaths: ["bin/view.py"],
+        paths: [{ path: "bin/view.py", sha256: "sha256:" + "c".repeat(64) }],
       },
       criteria: [
         { criterionId: "ZEI-1-AC-01", verdict: "PASS", evidenceRefs: ["check:01"], reasoning: "derived independently", uncertainty: null },
@@ -135,7 +153,8 @@ test("an approving review writes the assessment then advances the stage with a c
   // The document must be written BEFORE the transition: a stage that advanced
   // without its evidence in place is an approval nobody can audit.
   assert.ok(s.state.calls.indexOf(put) < s.state.calls.indexOf(patch));
-  assert.equal(s.state.issue.status, "done");
+  assert.equal(s.state.issue.status, "in_review");
+  assert.equal(s.state.issue.executionState.currentStageType, "approval");
 });
 
 test("a failing deterministic check requests changes and never approves", async () => {
@@ -212,6 +231,7 @@ test("the assessment body validates as AssessmentV1", async () => {
   assert.doesNotThrow(() => validateContract("AssessmentV1", assessment));
   assert.equal(assessment.objective.objectiveHash, OBJECTIVE.objectiveHash);
   assert.equal(assessment.objective.criteriaHash, OBJECTIVE.criteriaHash);
+  assert.equal(assessment.executionRunId, "engineer-run-1");
   assert.equal(assessment.reviewer.modelFamily, "openai-codex");
   assert.equal(assessment.deterministicResults.length, 2);
   assert.equal(assessment.overallVerdict, "PASS");
@@ -255,12 +275,29 @@ test("a write the server accepts but does not persist fails the review rather th
       env: ENV, api, objective: OBJECTIVE,
       reviewerModel: "openai-codex/gpt-5.6-sol", engineerModel: "anthropic/claude-opus-5",
       verifierPath: "/v", exec: passingExec, round: 1,
-      executionReceiptHash: "sha256:" + "e".repeat(64),
-      changeSet: { baseCommit: "3cb8238", headCommit: "3cb8238", diffHash: "sha256:" + "d".repeat(64), changedPaths: ["bin/view.py"] },
+      executionReceipt: EXECUTION_RECEIPT,
+      changeSet: {
+        baseCommit: "3cb8238", headCommit: "3cb8238", diffHash: "sha256:" + "d".repeat(64),
+        changedPaths: ["bin/view.py"], paths: [{ path: "bin/view.py", sha256: "sha256:" + "c".repeat(64) }],
+      },
       criteria: OBJECTIVE.acceptanceCriteria.map((c) => ({ criterionId: c.id, verdict: "PASS", reasoning: "ok" })),
       summary: "ok",
     }),
     /did not persist/,
   );
   assert.equal(s.state.issue.status, "in_review", "the stage must not advance on an unpersisted assessment");
+});
+
+test("a status PATCH that returns 200 without changing the issue blocks stage advancement", async () => {
+  const s = server();
+  const original = s.fetchImpl;
+  const lying = async (url, opts = {}) => {
+    if ((opts.method ?? "GET") === "PATCH" && /\/api\/issues\/issue-uuid-1$/.test(url)) {
+      return { ok: true, status: 200, text: async () => JSON.stringify(s.state.issue) };
+    }
+    return original(url, opts);
+  };
+  const api = new PaperclipApi(ENV.PAPERCLIP_API_URL, { fetch: lying, authToken: ENV.PAPERCLIP_API_KEY });
+  const { run } = call();
+  await assert.rejects(() => run({ api }), /did not persist|200-and-do-nothing/i);
 });

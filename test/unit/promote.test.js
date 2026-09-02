@@ -15,7 +15,7 @@ const { execFileSync } = require("node:child_process");
 const {
   gatherChangedPaths, computeChangeSet, computeDiffHash,
   assertAllowedPaths, assertBranch, assertBaseCommit,
-  fingerprintPaths, commitReviewedPaths,
+  fingerprintPaths, fingerprintPrimaryTree, commitReviewedPaths,
 } = require("../../lib/promote");
 const { FactoryError } = require("../../lib/util");
 
@@ -152,6 +152,21 @@ test("the primary-tree fingerprint changes when the operator's own work changes"
   } finally { f.cleanup(); }
 });
 
+test("the primary-tree fingerprint covers HEAD, index, tracked bytes, and untracked bytes", () => {
+  const f = fixture();
+  try {
+    const before = fingerprintPrimaryTree(f.repo);
+    assert.equal(fingerprintPrimaryTree(f.repo), before);
+
+    fs.writeFileSync(path.join(f.repo, "README.md"), "operator edit\n");
+    assert.notEqual(fingerprintPrimaryTree(f.repo), before, "tracked working bytes must be covered");
+    fs.writeFileSync(path.join(f.repo, "README.md"), "base\n");
+
+    fs.writeFileSync(path.join(f.repo, "OPERATOR-WIP.txt"), "different untracked bytes\n");
+    assert.notEqual(fingerprintPrimaryTree(f.repo), before, "untracked working bytes must be covered");
+  } finally { f.cleanup(); }
+});
+
 // ------------------------------------------------------------- the commit
 
 test("promote commits exactly the reviewed paths and leaves everything else alone", () => {
@@ -201,5 +216,20 @@ test("promote refuses to commit a path that is not actually changed", () => {
       /nothing to commit|no changes/i,
       "an empty promotion would mint a commit that attests to work nobody did",
     );
+  } finally { f.cleanup(); }
+});
+
+test("promote refuses every pre-existing staged path before staging the reviewed set", () => {
+  const f = fixture();
+  try {
+    fs.writeFileSync(path.join(f.wt, "bin/view.py"), "print('fixed')\n");
+    fs.writeFileSync(path.join(f.wt, "README.md"), "staged stray\n");
+    execFileSync("git", ["-C", f.wt, "add", "README.md"]);
+
+    assert.throws(
+      () => commitReviewedPaths({ worktree: f.wt, paths: ["bin/view.py"], message: "reviewed" }),
+      /pre-existing staged|README\.md/i,
+    );
+    assert.equal(execFileSync("git", ["-C", f.wt, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(), f.baseCommit);
   } finally { f.cleanup(); }
 });

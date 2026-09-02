@@ -1,10 +1,13 @@
 # Factory Executive Master Knowledge Base
 
-**Canonical location:** `docs/FACTORY_KNOWLEDGE.md` in `~/factory-stack`. Any copy
-elsewhere (Downloads, OneDrive, a chat transcript) is a stale mirror.
+**Purpose:** dated incident and implementation evidence. This file is not
+canonical current state; verify operational claims against the current
+repository and live semantic readback. Copies outside the repository are
+untracked mirrors.
 
-**Last verified:** 2026-09-01, against commit `1eba349` and the live Paperclip
-instance at `127.0.0.1:3100`.
+The entries were accumulated across multiple 2026-09-01 snapshots and do not
+share one repository commit or live-state boundary. Treat dates, commits, and
+commands attached to individual claims as their evidence scope.
 
 ---
 
@@ -184,7 +187,10 @@ introduce a second task database or scheduler.
 
 ---
 
-## 4. Current state — verified 2026-09-01
+## 4. Historical state snapshot — verified 2026-09-01
+
+This section records the state at commit `74d3eff`; it is not a current-status
+dashboard. Re-run the named checks and inspect live state before using it.
 
 - **Repository:** `/home/lucascoh/factory-stack`, branch `master`, commit
   `74d3eff`. The `feat/factory-finalization` worktree was merged
@@ -192,12 +198,12 @@ introduce a second task database or scheduler.
 - **Tests:** 139 pass, 0 fail, 0 skipped (`npm test`).
 - **Instruction bundles:** `instructions/compile.sh --check` clean.
 - **Live Paperclip:** healthy at `127.0.0.1:3100`. Company `ZEIROS`.
-- **`factory apply` has NEVER been run.** No `receipts/` directory exists, and
-  the live agents still carry their original configuration. **Nothing in this
-  project has ever mutated live state.**
-- **Nothing has ever been dispatched.** No Engineer run, no review, no
-  promotion. ZEI-1 is `blocked` and stays there until the canary passes.
-- **Factory remains at HOLD.**
+- **At this snapshot,** `factory apply` had not been run and no `receipts/`
+  directory existed. This does not establish that no other live mutation had
+  occurred.
+- No authorized functional Engineer/review/promotion canary had completed. The
+  later six-run corrective-dispatch incident is recorded in §5c.
+- The factory was at **HOLD** at this snapshot.
 
 ### Build state by section
 
