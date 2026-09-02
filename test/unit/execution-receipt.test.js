@@ -98,11 +98,90 @@ test("review resolves the latest succeeded return-assignee run from the current 
   // through, so the Reviewer path receives it without asking.
   assert.deepEqual(loaded.goalGate, goalGate);
   assert.equal(loaded.goalGatePath, path.join(sessionDir, "goal-gate-run-1.json"));
+  // The receipt DOCUMENT is consulted first; this fixture has none, so the
+  // loader falls back to the text frame in the run summary. Both paths must
+  // work: the document is how receipts arrive now, the frame is how every run
+  // before `paperclip_receipt` recorded itself.
   assert.deepEqual(calls, [
     "/api/issues/issue-1/runs",
     "/api/heartbeat-runs/run-1",
+    "/api/issues/issue-1/documents/execution-receipt",
     "/api/issues/issue-1/documents/spec",
   ]);
+});
+
+test("a receipt document is preferred over the run summary's text frame", async () => {
+  // The point of the tool: the Engineer never has to emit a byte-exact frame.
+  const issue = { id: "issue-1", executionState: { returnAssignee: { type: "agent", agentId: "engineer-1" } } };
+  const api = {
+    get: async (path) => {
+      if (path === "/api/issues/issue-1/runs") return [
+        { runId: "run-1", agentId: "engineer-1", status: "succeeded", createdAt: "2026-08-31T10:00:00Z" },
+      ];
+      if (path === "/api/heartbeat-runs/run-1") {
+        // A summary of prose with NO frame — the exact 2026-09-02 canary shape.
+        return { ...run, resultJson: { ...run.resultJson, summary: "Fix landed, criterion passes." } };
+      }
+      throw new Error(path);
+    },
+    getOptional: async (path) => {
+      if (path === "/api/issues/issue-1/documents/execution-receipt") {
+        return { body: JSON.stringify({ runId: "run-1", claims }) };
+      }
+      if (path === "/api/issues/issue-1/documents/spec") {
+        return { key: "spec", latestRevisionNumber: 1, updatedAt: "2026-08-31T09:00:00.000Z" };
+      }
+      return null;
+    },
+  };
+  const loaded = await loadExecutionReceiptForReview({ api, issue, objective });
+  assert.equal(loaded.receiptSource, "documents/execution-receipt");
+  assert.equal(loaded.receipt.execution.runId, "run-1");
+});
+
+test("a receipt document from a DIFFERENT run is ignored, not read as this one's", async () => {
+  // A stale receipt approving new work is the failure this guards.
+  const framed = `${RECEIPT_BEGIN}\n${JSON.stringify(claims)}\n${RECEIPT_END}`;
+  const issue = { id: "issue-1", executionState: { returnAssignee: { type: "agent", agentId: "engineer-1" } } };
+  const api = {
+    get: async (path) => {
+      if (path === "/api/issues/issue-1/runs") return [
+        { runId: "run-1", agentId: "engineer-1", status: "succeeded", createdAt: "2026-08-31T10:00:00Z" },
+      ];
+      if (path === "/api/heartbeat-runs/run-1") return { ...run, resultJson: { ...run.resultJson, summary: framed } };
+      throw new Error(path);
+    },
+    getOptional: async (path) => {
+      if (path === "/api/issues/issue-1/documents/execution-receipt") {
+        return { body: JSON.stringify({ runId: "some-older-run", claims }) };
+      }
+      if (path === "/api/issues/issue-1/documents/spec") {
+        return { key: "spec", latestRevisionNumber: 1, updatedAt: "2026-08-31T09:00:00.000Z" };
+      }
+      return null;
+    },
+  };
+  const loaded = await loadExecutionReceiptForReview({ api, issue, objective });
+  assert.equal(loaded.receiptSource, "resultJson.summary",
+    "a receipt belonging to another run must not stand in for this run's account");
+});
+
+test("a malformed receipt document refuses rather than falling back", async () => {
+  // Two disagreeing accounts of one run is worse than one missing account.
+  const framed = `${RECEIPT_BEGIN}\n${JSON.stringify(claims)}\n${RECEIPT_END}`;
+  const issue = { id: "issue-1", executionState: { returnAssignee: { type: "agent", agentId: "engineer-1" } } };
+  const api = {
+    get: async (path) => {
+      if (path === "/api/issues/issue-1/runs") return [
+        { runId: "run-1", agentId: "engineer-1", status: "succeeded", createdAt: "2026-08-31T10:00:00Z" },
+      ];
+      if (path === "/api/heartbeat-runs/run-1") return { ...run, resultJson: { ...run.resultJson, summary: framed } };
+      throw new Error(path);
+    },
+    getOptional: async (path) =>
+      path === "/api/issues/issue-1/documents/execution-receipt" ? { body: "{not json" } : null,
+  };
+  await assert.rejects(() => loadExecutionReceiptForReview({ api, issue, objective }), /not valid JSON/);
 });
 
 test("the review load reports an absent gate without refusing the run", async () => {

@@ -1,66 +1,47 @@
-
 ## Execution receipt
 
-Every final output must contain exactly one claims frame:
+Before you finish your turn, call **`paperclip_receipt`** exactly once. It is
+the last thing you do, and the review stage cannot proceed without it: a run
+that leaves no receipt has produced work nobody can act on.
 
-```text
----BEGIN EXECUTION_RECEIPT_CLAIMS_V1---
-{"schemaVersion":"ExecutionReceiptClaimsV1",...}
----END EXECUTION_RECEIPT_CLAIMS_V1---
-```
+You supply your judgement only:
 
-The JSON must have exactly these top-level keys:
-`schemaVersion`, `objective`, `repository`, `checks`, `observations`,
-`conclusions`, `unresolvedConditions`, `warnings`, and `terminal`.
+- `observations` — what you actually saw: the state you found, what you changed,
+  what you saw afterwards.
+- `conclusions` — what you concluded from those observations. Required when you
+  are leaving the issue `ready_for_review`.
+- `unresolvedConditions` — anything you could not settle. An empty array is a
+  claim that nothing is unresolved; do not use it to mean "I did not check".
+- `warnings` — anything the reviewer or the operator should know that is not a
+  failure.
+- `checks` — the checks you ran yourself, with the command verbatim and its real
+  exit code. Report them honestly. The reviewer re-runs the acceptance commands
+  independently in a sandbox you do not control, so an optimistic exit code buys
+  nothing and costs your account its credibility.
+- `terminal` — `status` (`ready_for_review`, `blocked`, or `abandoned`) and a
+  one-line `stopReason`.
 
-Bind `objective` by copying `objectiveId`, `revision`, `objectiveHash`, and
-`criteriaHash` VERBATIM from the issue document `spec`, which is the
-ObjectiveEnvelopeV1 the control plane installed. Read that document; those four
-values exist only there. Do not substitute the Paperclip issue id or identifier
-for `objectiveId`, do not add keys to `objective`, and never emit `null` for a
-value you did not find — a receipt that cannot prove which objective revision it
-was built against is rejected, and the work is stranded.
+**You never supply a hash, a commit, or an objective binding.** The tool derives
+all of it from the worktree and from the issue's own `spec` document. If you
+find yourself about to copy a `sha256:` value, stop — that is the tool's job,
+and a value you transcribe is a value that can be wrong.
 
-Emit EXACTLY the shape below. These key names ARE the contract, not a
-description of it: `additionalProperties` is false everywhere, so an extra key
-rejects the whole receipt, and every hash is `sha256:` followed by 64 lowercase
-hex characters — a bare digest is invalid.
+If your submission is malformed the tool tells you why and you call it again.
+Getting it wrong is recoverable; not calling it is not.
 
-```json
-{
-  "schemaVersion": "ExecutionReceiptClaimsV1",
-  "objective": {"objectiveId": "ZEI-1", "revision": 1, "objectiveHash": "sha256:...", "criteriaHash": "sha256:..."},
-  "repository": {
-    "baseCommit": "<sha>", "headCommit": "<sha>", "branch": "<branch>",
-    "diffHash": "sha256:...",
-    "paths": [{"path": "bin/view.py", "sha256": "sha256:..."}]
-  },
-  "checks": [{
-    "criterionId": "ZEI-1-AC-01",
-    "argv": ["python3", "-m", "pytest", "-q"],
-    "cwd": "/absolute/path",
-    "exitCode": 0,
-    "stdoutHash": "sha256:...",
-    "stderrHash": "sha256:..."
-  }],
-  "observations": [], "conclusions": [], "unresolvedConditions": [], "warnings": [],
-  "terminal": {"status": "ready_for_review", "stopReason": "<short reason>"}
-}
-```
-
-`criterionId` is the objective's exact criterion id such as `ZEI-1-AC-01`, never
-the requirement text. A `paths` entry carries only `path` and `sha256`; no
-`status`. `terminal` carries only `status` — one of `ready_for_review`,
-`blocked`, `failed`, `cancelled` — and `stopReason`. The Paperclip disposition
-is recorded through the native stage, never inside this frame.
-
-The receipt is admissible only when the goal gate recorded a verified
-`goal.complete` for this run.
+Your final message is then free prose for a human reader. Do not restate the
+receipt in it.
 
 ## Disposition
 
-Choose the native disposition that matches the receipt. For work ready for the
-configured review path, request `in_review`; for blocked, failed, or cancelled
-work, record the supported disposition and reason. Then read the issue back and
-confirm that it has a valid next action. Do not manually change assignees,
-review policy, execution state, stage participants, or reviewer decisions.
+Your `terminal.status` in the receipt is your account of the work. Separately,
+set the native Paperclip disposition that matches it: request `in_review` for
+work ready for the configured review path; for blocked or abandoned work record
+the supported disposition and its reason. Then read the issue back and confirm
+it has a valid next action.
+
+A run that ends without a disposition leaves the issue with no next step and can
+trigger a corrective redispatch, which pays for the same reasoning twice.
+
+Do not manually change assignees, review policy, execution state, stage
+participants, or reviewer decisions.

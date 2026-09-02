@@ -197,8 +197,22 @@
           "${FACTORY_ROOT}/omp/base.overlay.yml",
           "${FACTORY_ROOT}/omp/engineer.policy.yml"
         ],
+        "$comment_extensions": [
+          "TWO EXTENSIONS, NESTED LAYOUT, REACHED WITH --extension.",
+          "",
+          "paperclip-receipt gives the Engineer the tool it records its work",
+          "through. It replaced a byte-exact text frame the model had to",
+          "remember to emit around hand-assembled hashes; on 2026-09-02 the",
+          "canary died on exactly that, with correct work and no frame. The",
+          "tool derives every mechanical field, so the model supplies only",
+          "judgement — the same split paperclip_review already uses.",
+          "",
+          "--plugin-dir would NOT find either of these: that glob is",
+          "non-recursive and the tools use <dir>/tools/<name>/index.ts."
+        ],
         "extensions": [
-          "${FACTORY_ROOT}/omp/plugins/paperclip-goal-guard"
+          "${FACTORY_ROOT}/omp/plugins/paperclip-goal-guard",
+          "${FACTORY_ROOT}/omp/plugins/paperclip-receipt"
         ],
         "hooks": [
           "${FACTORY_ROOT}/omp/worktree-guard.js"

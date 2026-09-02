@@ -1,0 +1,6 @@
+{
+  "name": "paperclip-receipt",
+  "version": "1.0.0",
+  "description": "The Engineer's execution-receipt tool: submit the judgement half of ExecutionReceiptClaimsV1 and let the tool derive every mechanical field.",
+  "author": "factory-stack"
+}
