@@ -155,15 +155,38 @@ test("loadGoalGate returns null for an absent file — absence is the caller's c
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("loadGoalGate refuses a run with no sessionParams.sessionDir", () => {
-  assert.throws(
-    () => loadGoalGate({ run: { id: "run-1" }, readFile: () => "" }),
-    /no sessionParams\.sessionDir/i,
-  );
-  assert.throws(
-    () => loadGoalGate({ run: { id: "run-1", sessionParams: {} }, readFile: () => "" }),
-    /no sessionParams\.sessionDir/i,
-  );
+// CORRECTED 2026-09-02. This asserted that an unlocatable session directory is
+// a REFUSAL. It made an advisory gate mandatory and unsatisfiable, because
+// `run.sessionParams` does not exist: heartbeat_runs has no such column. The
+// adapter returns {sessionId, cwd, sessionDir} and the server persists it on
+// agent_task_sessions.sessionParamsJson, keyed by the issue id.
+//
+// The cost of the old expectation was a blocked canary. On 2026-09-02 the
+// Reviewer independently reached a valid PASS verdict on ZEI-2-AC-01 and
+// `paperclip_review` threw "run … carries no sessionParams.sessionDir" twice.
+// The test passed the whole time, because it asserted the same wrong belief the
+// code held — the failure mode this repo keeps rediscovering.
+test("loadGoalGate reports an unlocatable gate as ABSENT, not as a refusal", () => {
+  assert.equal(loadGoalGate({ run: { id: "run-1" }, readFile: () => "" }), null);
+  assert.equal(loadGoalGate({ run: { id: "run-1", sessionParams: {} }, readFile: () => "" }), null);
+});
+
+test("a caller that resolved the session directory properly may supply it", () => {
+  const dir = withSessionDir(null);
+  fs.writeFileSync(path.join(dir, "goal-gate-run-1.json"), JSON.stringify({ hello: "gate" }));
+  const loaded = loadGoalGate({
+    run: { id: "run-1" },                       // no sessionParams, as in reality
+    sessionDir: dir,
+    readFile: (p) => fs.readFileSync(p, "utf8"),
+  });
+  assert.deepEqual(loaded.gate, { hello: "gate" });
+});
+
+test("a run with no id is still a programming error, not an absent gate", () => {
+  // Absence is about the RECORD. A caller that passed no run at all has a bug,
+  // and swallowing that would hide it behind a plausible "no gate" result.
+  assert.throws(() => loadGoalGate({ run: {}, readFile: () => "" }), /requires a run with an id/);
+  assert.throws(() => loadGoalGate({ run: { id: "run-1" } }), /requires an injected readFile/);
 });
 
 test("a corrupt gate file is an error, not silence", () => {
