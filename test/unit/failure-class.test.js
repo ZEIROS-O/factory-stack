@@ -245,3 +245,75 @@ test("the reasoning side is bounded at one replay by the shipped server", () => 
   assert.equal(Number(m[1]), 1,
     "a corrective redispatch budget above 1 multiplies the cost of every missing disposition");
 });
+
+// ── the streak's cost is not the history's cost ────────────────────────────
+//
+// The gate's message said "the last 4 run(s) all ended adapter_failed and cost
+// $1.33 in total". They cost $0.00. The $1.33 belonged to an earlier SUCCEEDED
+// run in the same issue's history. Reporting it as the failures' cost
+// misattributes spend to the wrong event — the exact error BUILD_HISTORY §5c
+// records as "the same incident was then mis-attributed", and the reason this
+// repo reconciles cost against the ledger rather than estimating it.
+
+test("the streak carries its own cost, separate from the issue's history", () => {
+  const h = classifyRunHistory([
+    reasoningRun({ runId: "paid", createdAt: "2026-09-02T19:09:00Z",
+      livenessState: "advanced", usageJson: { costUsd: 1.32823425 } }),
+    ...NINE.map((r, i) => transportRun({ ...r, runId: `f${i}`, createdAt: `2026-09-02T20:0${i}:00Z` })),
+  ]);
+  assert.equal(h.consecutiveTransportFailures, 9);
+  assert.equal(h.streakCostUsd, 0, "the failures reached no provider and cost nothing");
+  assert.equal(h.totalCostUsd.toFixed(4), "1.3282", "the history total is a different number");
+});
+
+test("the refusal states the STREAK's cost, not the issue's", () => {
+  const g = repeatedTransportFailureGate({
+    identifier: "ZEI-2",
+    runs: [
+      reasoningRun({ runId: "paid", createdAt: "2026-09-02T19:09:00Z",
+        livenessState: "advanced", usageJson: { costUsd: 1.32823425 } }),
+      ...NINE.map((r, i) => transportRun({ ...r, runId: `f${i}`, createdAt: `2026-09-02T20:0${i}:00Z` })),
+    ],
+  });
+  assert.equal(g.ok, false);
+  assert.match(g.detail, /\$0\.00/, "the failures cost nothing and the message must say so");
+  assert.ok(!g.detail.includes("1.33"),
+    "a cost from an unrelated successful run must not be attributed to the failures");
+});
+
+// ── clearing a condition the operator has resolved ─────────────────────────
+//
+// The gate blocks a dispatch that would only repeat a known failure. But its
+// only natural exit is a successful run, which it blocks — so a condition the
+// operator HAS fixed (a reset quota, a corrected config) leaves the issue
+// permanently undispatchable. That is a gate with no door.
+//
+// The door costs a sentence. `resolved` is not a bypass flag: it requires the
+// operator to state what changed, and that statement is echoed into the gate's
+// detail so it lands in the run's record rather than in someone's memory.
+
+test("a resolved condition clears the gate when the operator says what changed", () => {
+  const g = repeatedTransportFailureGate({
+    identifier: "ZEI-2", runs: NINE,
+    resolved: "anthropic 5h quota window reset to 0%",
+  });
+  assert.equal(g.ok, true);
+  assert.match(g.detail, /quota window reset/, "what changed must be recorded, not just accepted");
+  assert.match(g.detail, /9/, "the streak it cleared stays visible");
+});
+
+test("an empty or missing reason does NOT clear the gate", () => {
+  // Otherwise `--resolved` degenerates into `--force`, which is the thing the
+  // gate exists to prevent.
+  for (const resolved of ["", "   ", true, null, undefined]) {
+    assert.equal(repeatedTransportFailureGate({ identifier: "ZEI-2", runs: NINE, resolved }).ok, false,
+      `expected ${JSON.stringify(resolved)} not to clear the gate`);
+  }
+});
+
+test("a reason does not clear a gate that failed for an unreadable history", () => {
+  // "I fixed it" cannot substitute for evidence that was never gathered.
+  const g = repeatedTransportFailureGate({ identifier: "ZEI-2", runs: null, resolved: "I fixed it" });
+  assert.equal(g.ok, false);
+  assert.match(g.detail, /could not/i);
+});
