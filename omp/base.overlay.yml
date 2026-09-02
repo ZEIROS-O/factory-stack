@@ -1,0 +1,85 @@
+# Factory-owned OMP base overlay. Referenced by adapterConfig.configFiles, so
+# every factory OMP run loads it through `--config` AFTER the global role
+# table. This file is a byte-faithful copy of the model-role and fallback
+# routing in effect at the time it was written (~/.omp/agent/config.yml,
+# setupVersion 2, as of 2026-09-02). It exists so a change to the operator's
+# personal global table cannot silently re-route factory work: a role renamed,
+# repointed, or repriced upstream surfaces as a visible diff here — reviewed
+# like code — instead of an invisible behavior change in billed dispatch.
+#
+# `--config` overlays merge AFTER ~/.omp/agent/config.yml, so anything this
+# file does not mention still inherits from the global table. It sets no
+# policy of its own: per-role policy lives in omp/{engineer,reviewer}.policy.yml,
+# which Paperclip loads as a separate overlay. Do not add credentials or
+# personal content to this file; lib/materialize.js scans it and refuses
+# secret-shaped bytes.
+
+modelRoles:
+  # ── PHYSICAL — named by lab, so lineage is visible. Swap here; semantics follow.
+  anthropic: anthropic/claude-opus-5                        # sub  · CodeArena 2668
+  openai: openai-codex/gpt-5.6-sol                          # sub  · reason 56.0 / agent 42.8
+  zhipu: openrouter/z-ai/glm-5.3                            # $1.73
+  zhipu-flash: openrouter/z-ai/glm-5.3-flash                # $0.19
+  moonshot: openrouter/moonshotai/kimi-k3                   # $4.33 · open 2.8T
+  deepseek: openrouter/deepseek/deepseek-v4-pro-0813        # $0.48 · open 1.6T
+  deepseek-flash: openrouter/deepseek/deepseek-v4-flash-0731 # $0.10 · 160 c/s
+  google: google-antigravity/gemini-3.7-flash               # sub  · multimodal
+
+  # ── SEMANTIC — named by cognitive shape, not subject matter.
+  default: "@anthropic"
+  plan: "@openai:xhigh"
+  synthesize: "@anthropic:xhigh"
+  judge: "@openai:high"
+  write: "@anthropic"
+  research: "@zhipu-flash:high"
+  verify: "@zhipu-flash"
+  reconcile: "@deepseek:high"
+  extract: "@deepseek-flash"
+  scout: "@deepseek-flash"
+  code-bulk: "@deepseek:high"
+  code-hard: "@zhipu:high"
+  redteam: "@moonshot:max"
+  dissent-cn: "@moonshot:high"
+  dissent-alt: "@google:high"
+  multimodal: "@google"
+
+  # ── LOAD-BEARING — OMP resolves these names itself.
+  task: "@code-bulk"
+  review: "@dissent-cn"
+  smol: "@research"
+  slow: "@openai:max"
+  tiny: "@scout"
+  vision: "@multimodal"
+  advisor: "@openai"
+  designer: "@anthropic:high"
+
+advisor:
+  enabled: true
+
+cycleOrder:
+  - default
+  - plan
+  - synthesize
+  - code-hard
+  - research
+  - code-bulk
+  - reconcile
+  - redteam
+  - scout
+
+retry:
+  modelFallback: true
+  usageAwareFallback: true       # preflight coding-plan quota before spending it
+  usageReservePct: 10
+  usageReservePolicy: fail-closed # pilot posture: quota exhaustion is a visible event
+  fallbackChains:
+    # Subscription lanes fall to the cheapest frontier model.
+    "anthropic/*": [openrouter/z-ai/glm-5.3, openrouter/z-ai/glm-5.3-flash]
+    "openai-codex/*": [openrouter/z-ai/glm-5.3, openrouter/z-ai/glm-5.3-flash]
+    # Gemini is the cheap/multimodal lane; it falls sideways, not up.
+    "google-antigravity/*": [openrouter/z-ai/glm-5.3-flash, openrouter/deepseek/deepseek-v4-flash-0731]
+    # Cross-lab on purpose: a z-ai outage is not fixed by another z-ai model.
+    "openrouter/z-ai/*": [openrouter/deepseek/deepseek-v4-pro-0813, openrouter/deepseek/deepseek-v4-flash-0731]
+    "openrouter/moonshotai/*": [openrouter/z-ai/glm-5.3, openrouter/deepseek/deepseek-v4-pro-0813]
+    "openrouter/deepseek/*": [openrouter/z-ai/glm-5.3-flash, openrouter/z-ai/glm-5.3]
+    default: [openrouter/z-ai/glm-5.3, openrouter/z-ai/glm-5.3-flash]

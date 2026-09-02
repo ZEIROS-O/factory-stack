@@ -275,13 +275,16 @@ test("document and instruction upserts fail on the broader 200-and-do-nothing AP
 // from FIRST-CLASS keys (configFiles/extensions/hooks/tools/skills/
 // approvalMode) and appends extraArgs last. A key that is not managed here is
 // silently never written, so a boundary declared in config arms nothing.
-const { planAgents, AGENT_MANAGED_KEYS } = require("../../lib/plan");
+const { planAgents, managedKeysFor } = require("../../lib/plan");
 
 const agentSnap = (liveAdapterConfig) => ({ agents: { "OMP Reviewer": { id: "a1", adapterConfig: liveAdapterConfig } } });
-const reviewer = (adapterConfig) => ({ agents: [{ name: "OMP Reviewer", role: "reviewer", adapterConfig }] });
+const reviewerAgent = (adapterConfig) => ({
+  name: "OMP Reviewer", role: "reviewer", adapterType: "omp_local", adapterConfig,
+});
+const reviewer = (adapterConfig) => ({ agents: [reviewerAgent(adapterConfig)] });
 
 test("extraArgs is managed, so the Reviewer's --extension and --tools actually get written", () => {
-  assert.ok(AGENT_MANAGED_KEYS.includes("extraArgs"),
+  assert.ok(managedKeysFor(reviewerAgent({})).includes("extraArgs"),
     "an unmanaged key is silently never written; this is what made the plugin fix inert");
 
   const args = ["--extension", "/repo/omp/plugins/paperclip-review", "--tools", "read,paperclip_review"];
@@ -303,7 +306,7 @@ test("every adapterConfig key the OMP adapter turns into a flag is managed", () 
   // list would be declared here and absent on the live agent.
   for (const k of ["tools", "skills", "approvalMode", "autoApprove",
                    "configFiles", "extensions", "pluginDirs", "hooks"]) {
-    assert.ok(AGENT_MANAGED_KEYS.includes(k), `${k} builds an OMP flag and must be managed`);
+    assert.ok(managedKeysFor(reviewerAgent({})).includes(k), `${k} builds an OMP flag and must be managed`);
   }
 });
 
@@ -328,7 +331,7 @@ test("the Reviewer's read-only boundary and plugin path are written as first-cla
 });
 
 test("adapter env is managed so model-family identity reaches paperclip_review", () => {
-  assert.ok(AGENT_MANAGED_KEYS.includes("env"));
+  assert.ok(managedKeysFor(reviewerAgent({})).includes("env"));
   const env = { FACTORY_ENGINEER_MODEL: "anthropic/x", FACTORY_REVIEWER_MODEL: "openai/y" };
   const actions = [];
   planAgents(reviewer({ command: "/x", env }), agentSnap({ command: "/x" }), actions);

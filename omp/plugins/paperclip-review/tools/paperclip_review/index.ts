@@ -158,6 +158,7 @@ const factory: CustomToolFactory = pi => ({
         paths: changeSet.paths,
       },
       executionReceipt: loadedReceipt.receipt,
+      goalGate: loadedReceipt.goalGate,
       round: Number(issue.executionState?.changesRequestedCount ?? 0) + 1,
       limits: objective.limits,
     });

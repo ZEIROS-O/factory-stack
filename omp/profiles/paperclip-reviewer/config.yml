@@ -1,0 +1,57 @@
+# OMP profile state for the Paperclip OMP Reviewer (role: reviewer).
+#
+# Materialized by `factory materialize --apply` (lib/materialize.js) into
+# ~/.omp/profiles/paperclip-reviewer/agent/config.yml — the profile state
+# root the omp_local adapter computes for adapterConfig.profile
+# (configRoot/profiles/<profile>/agent), giving this agent its own state,
+# session, cache, and skills roots, separate from the operator's
+# ~/.omp/agent. This file is a repository TEMPLATE: no personal content and
+# no credentials, ever.
+#
+# Model-role and fallback routing do NOT live here: they are pinned by
+# omp/base.overlay.yml, which adapterConfig.configFiles loads as a strict
+# `--config` overlay on every run.
+#
+# adapterConfig.noRules: true is what stops project and global Markdown
+# (AGENTS.md, CLAUDE.md, rules files) from being auto-loaded: the managed
+# instruction bundle plus the objective are the COMPLETE instructional
+# context this agent receives.
+#
+# Skill allowlist (delivered through adapterConfig.skills, not this file):
+#   using-superpowers, verification-before-completion, systematic-debugging,
+#   anti-narrowness
+# All of those skills are verified to exist on this machine.
+
+# Mark setup as done so a fresh profile never drops into the setup wizard.
+setupVersion: 2
+
+# Memory OFF and auto-learn OFF. Real setting keys from OMP's settings schema
+# (pi-coding-agent dist/types/config/settings-schema.d.ts):
+#   "memory.backend"   enum off|local|hindsight|mnemopi|sharpshooter, default "off"
+#   "autolearn.enabled" boolean, default false
+# A reviewer must judge only what is in front of it: no recall of prior runs,
+# no lessons written back.
+memory:
+  backend: off
+autolearn:
+  enabled: false
+
+# Subagent limits. These are CONFIG keys — the omp CLI has no
+# --delegation-depth or --max-children flags. Real setting keys:
+#   "task.maxRecursionDepth"  number, default 2  (0 = none, -1 = unlimited)
+#   "task.maxConcurrency"     number, default 32 (0 = unlimited)
+#   "task.maxRuntimeMs"       number, default 0  (0 = no hard runtime cap)
+#   "task.softRequestBudget"  number, default 200 (0 = disables the guard)
+#
+# THE TOOL DENIAL IS THE BOUNDARY: the Reviewer's policy
+# (omp/reviewer.policy.yml) denies the `task` tool outright, so no subagent
+# can ever be spawned. The limits below are DEFENCE IN DEPTH — the most
+# restrictive values the schema allows — so a policy regression cannot
+# quietly re-enable delegation: recursion 0 (no spawning at all), the
+# smallest non-unlimited concurrency (1; 0 means UNLIMITED, not none), the
+# lowest runtime preset, and the smallest budget that still guards.
+task:
+  maxRecursionDepth: 0
+  maxConcurrency: 1
+  maxRuntimeMs: 300000
+  softRequestBudget: 1

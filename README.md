@@ -11,8 +11,10 @@ you → Paperclip issue → heartbeat (30s) → spawns a worker CLI → result o
 | Path | What |
 |---|---|
 | `package.json` / `package-lock.json` | Pins `paperclipai` — never run it via floating `npx` |
-| `instructions/src/` | Governing law. Compiled into each agent's `AGENTS.md` |
-| `instructions/compile.sh` | Compiles the three bundles + SHA-256 manifest; `--check` is byte-read-only and never publishes |
+| `instructions/bundles.json` | Machine-owned bundle composition: roles, fragment order, byte caps |
+| `instructions/src/` | Source fragments — `_core.md` plus role and contract files. Compiled into each agent's `AGENTS.md`; never edit `out/` |
+| `instructions/compile.sh` | Compiles the three bundles (mode 0444) + SHA-256 manifest; `--check` is byte-read-only and never publishes |
+| `docs/` | `FACTORY_KNOWLEDGE.md` index → `ARCHITECTURE.md`, `OPERATIONS.md`, `BUILD_HISTORY.md` |
 | `scripts/prove-restore.sh` | Proves a database backup actually restores |
 | `ops/paperclip-{start,status,stop}.sh` | Fail-closed lifecycle wrappers for the local Paperclip instance |
 | `scripts/sync-superpowers.sh` | Syncs the superpowers skill pack into Hermes |
@@ -45,27 +47,30 @@ verified from actual runs; configuration alone is not evidence of independence.
 
 ## Instructions
 
-Paperclip's active adapter supplies the platform contract. Each compiled
-`AGENTS.md` contains only the project-specific factory doctrine and one role
-section; copying the platform contract here would duplicate it and allow it to
-drift. The doctrine is compiled into every bundle so no secondary project file
-must be loaded at runtime.
+Paperclip's active adapter supplies the platform contract; the compiler never
+copies it. `instructions/bundles.json` is the single machine-owned source of
+bundle composition: it lists each role's fragment set in load-bearing order and
+the byte caps that keep the resident prompt small. A bundle is the exact
+ordered concatenation of its declared fragments — `_core.md` (shared
+invariants) plus role and contract files specific to that role.
 
 ```bash
-bash instructions/compile.sh --write   # edit src/, then always run this
+bash instructions/compile.sh --write   # edit src/ or bundles.json, then always run this
 bash instructions/compile.sh --check  # byte-read-only drift check; NEVER publishes
 ```
 
-The compiler writes only local files (`instructions/out/` + `instructions/manifest.sha256`)
-— it has no Paperclip credential path at all. Live publication is a declarative
-reconciliation: `factory.config.json` binds each agent's `instructions.bundle`
-to the compiled bytes verified against the committed manifest at load time, and
-`factory apply` upserts the live instruction files with exact semantic readback
-plus an immutable receipt.
+`--write` installs each bundle mode `0444` (generated output is read-only to
+humans) and regenerates `instructions/manifest.sha256` in role order. `--check`
+is byte-read-only: it verifies composition, order, caps, forbidden-content
+guards, duplicate headings, the manifest, and the `0444` mode, with zero
+network calls and zero writes.
 
-`compile.sh` hard-fails if a bundle copies the adapter-owned platform contract,
-references an external instruction file, drifts from its sources or manifest,
-or if `--check` would need to write anything.
+The compiler writes only local files (`instructions/out/` +
+`instructions/manifest.sha256`) — it has no Paperclip credential path at all.
+Live publication is a declarative reconciliation: `factory.config.json` binds
+each agent's `instructions.bundle` to the compiled bytes verified against the
+committed manifest at load time, and `factory apply` upserts the live
+instruction files with exact semantic readback plus an immutable receipt.
 
 ## Known gaps
 

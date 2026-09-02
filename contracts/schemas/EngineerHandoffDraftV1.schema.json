@@ -1,0 +1,143 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://factory.local/schemas/EngineerHandoffDraftV1.schema.json",
+  "title": "EngineerHandoffDraftV1",
+  "description": "Handoff request composed by Hermes for the OMP Engineer. Carries only facts that exist before Paperclip creates the child issue. Every derived identifier (childIssueIdentifier, branch, objectiveId, revision, objectiveHash, criteriaHash, and acceptance criterion ids) is computed mechanically from the created child, so none of them is a property here and additionalProperties:false rejects any attempt to author one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "parentIssueIdentifier", "idempotencyKey", "title", "originalRequest", "repository", "permissions", "limits", "verificationLevel", "expectedOutputs", "constraints", "acceptanceCommands"],
+  "properties": {
+    "schemaVersion": {
+      "const": "EngineerHandoffDraftV1",
+      "description": "Pins the document to this contract so a draft cannot validate against a different or future shape."
+    },
+    "parentIssueIdentifier": {
+      "type": "string", "pattern": "^[A-Z][A-Z0-9]+-[0-9]+$",
+      "description": "Identifier of the parent Paperclip issue this handoff descends from. Binds the draft to exactly one parent so it cannot be replayed against a different issue."
+    },
+    "idempotencyKey": {
+      "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{7,63}$",
+      "description": "Caller-chosen retry key for the handoff. A repeated handoff carrying the same key must map to the same child issue instead of creating a duplicate."
+    },
+    "title": {
+      "type": "string", "minLength": 1,
+      "description": "One-line statement of the work, carried into the child objective title."
+    },
+    "originalRequest": {
+      "type": "string", "minLength": 1,
+      "description": "Verbatim request from the parent issue that motivates this work. Preserves intent so the Engineer can detect a draft that drifted from the ask."
+    },
+    "repository": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "baseCommit"],
+      "description": "Where the work happens. No branch: the child branch name is derived after Paperclip creates the child, so it cannot be authored here.",
+      "properties": {
+        "path": {
+          "type": "string", "pattern": "^/",
+          "description": "Absolute local path of the worktree the Engineer must operate in. A relative path would resolve differently per sandbox and is rejected."
+        },
+        "baseCommit": {
+          "type": "string", "pattern": "^[0-9a-f]{7,40}$",
+          "description": "Commit the worktree must be based on. Pins the baseline so execution cannot silently build on drifted state."
+        }
+      }
+    },
+    "permissions": {
+      "type": "object", "additionalProperties": false,
+      "required": ["filesystem", "network", "externalEffects"],
+      "description": "The complete authority envelope granted to the Engineer. Anything not listed here is denied.",
+      "properties": {
+        "filesystem": {
+          "type": "object", "additionalProperties": false,
+          "required": ["read", "write"],
+          "description": "Path prefixes the Engineer may touch. The write list is the entire write authority granted.",
+          "properties": {
+            "read": {
+              "type": "array", "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 },
+              "description": "Directory and file prefixes the Engineer may read. Anything outside these is denied by the worktree guard."
+            },
+            "write": {
+              "type": "array", "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 },
+              "description": "Directory and file prefixes the Engineer may write. An empty list grants no write authority."
+            }
+          }
+        },
+        "network": {
+          "enum": ["none", "provider_only"],
+          "description": "Network access class. none means fully offline; provider_only means model-provider traffic only."
+        },
+        "externalEffects": {
+          "type": "array", "maxItems": 0,
+          "description": "Hard zero. A handoff that proposes any external effect fails validation instead of being silently weakened."
+        }
+      }
+    },
+    "limits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["wallClockMinutes", "costCeilingUsd", "outerFactoryCostCeilingUsd", "maxReviewRounds"],
+      "description": "Bounded execution envelope; every run must fit inside all four.",
+      "properties": {
+        "wallClockMinutes": {
+          "type": "integer", "minimum": 1,
+          "description": "Hard wall-clock ceiling for the child run."
+        },
+        "costCeilingUsd": {
+          "type": "number", "exclusiveMinimum": 0,
+          "description": "Cost ceiling for the child run alone."
+        },
+        "outerFactoryCostCeilingUsd": {
+          "type": "number", "exclusiveMinimum": 0,
+          "description": "Cost ceiling for the whole factory loop including review, so total burn is bounded before dispatch."
+        },
+        "maxReviewRounds": {
+          "type": "integer", "minimum": 1,
+          "description": "Maximum review rounds before the parent is escalated instead of re-dispatched."
+        }
+      }
+    },
+    "verificationLevel": {
+      "enum": ["routine", "important", "critical"],
+      "description": "How strongly the result must be verified; drives which acceptance evidence the receipt must carry."
+    },
+    "expectedOutputs": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Artifacts the run must produce. At least one is mandatory so a handoff cannot promise only process."
+    },
+    "constraints": {
+      "type": "array", "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Hard rules the Engineer must obey. Empty means no constraints beyond permissions and limits."
+    },
+    "acceptanceCommands": {
+      "type": "array", "minItems": 1,
+      "description": "Commands whose clean exit proves the work. Criterion ids are derived from the child issue, so no id may be authored here.",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["requirement", "command"],
+        "properties": {
+          "requirement": {
+            "type": "string", "minLength": 1,
+            "description": "Human-readable statement this criterion asserts; becomes the reviewable requirement, not an id."
+          },
+          "command": {
+            "$ref": "#/definitions/command",
+            "description": "Executed exactly as argv. A shell string is rejected so quoting and injection cannot differ between caller and executor."
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "command": {
+      "type": "object", "additionalProperties": false,
+      "required": ["argv", "cwd"],
+      "properties": {
+        "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "cwd": { "const": "." }
+      }
+    }
+  }
+}

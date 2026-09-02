@@ -1,0 +1,20 @@
+{
+  "$comment": [
+    "Single machine-owned source of bundle composition. Roles, fragment",
+    "membership, and byte caps live here and nowhere else; compile.sh reads",
+    "this file and nothing hardcodes a role or fragment.",
+    "Fragment order is load-bearing: a compiled bundle is the exact ordered",
+    "concatenation of the listed src/ files, and the manifest pins those bytes.",
+    "maxBytes caps keep the resident prompt small. A 39,415-token standing",
+    "prompt once cost ~$1.82 per run startup, 86% of it waste (22 turns",
+    "re-reading a prompt that cost ~$0.25 to write once). That incident is",
+    "why the caps exist: skills load per task, not all-resident."
+  ],
+  "version": 1,
+  "bundles": {
+    "hermes":   ["_core.md", "_role_hermes.md", "_contract_handoff.md"],
+    "engineer": ["_core.md", "_role_engineer.md", "_contract_goal.md", "_contract_receipt.md"],
+    "reviewer": ["_core.md", "_role_reviewer.md"]
+  },
+  "maxBytes": { "_core.md": 2560, "hermes": 7168, "engineer": 10240, "reviewer": 6144 }
+}

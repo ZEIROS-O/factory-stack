@@ -35,6 +35,19 @@ test("run validates evidence, commits exact paths, attaches receipt+commit, then
       permissions: { filesystem: { write: ["bin/view.py"] } }, limits: { costCeilingUsd: 4 },
       acceptanceCriteria: [{ id: "AC-1", command: { argv: ["node", "--version"], cwd: "." } }],
     };
+    // The goal gate the Engineer's runtime wrote for this run, on disk where
+    // the adapter recorded the session: promotion now requires it.
+    const goalGate = {
+      schemaVersion: "EngineerGoalGateV1",
+      runId: "engineer-run", taskId: "i1", sessionId: "omp-1", goalId: "goal-1",
+      goalObjectiveHash: objective.objectiveHash,
+      objectiveId: "ZEI-1", revision: 1,
+      objectiveHash: objective.objectiveHash, criteriaHash: objective.criteriaHash,
+      goalStatus: "complete", continuations: 1, terminal: true,
+      observedAt: "2026-09-02T10:00:00.000Z",
+    };
+    const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), "promote-gate-"));
+    fs.writeFileSync(path.join(sessionDir, "goal-gate-engineer-run.json"), JSON.stringify(goalGate));
     const cs = computeChangeSet(f.wt, f.base);
     const claims = {
       schemaVersion: "ExecutionReceiptClaimsV1",
@@ -49,8 +62,9 @@ test("run validates evidence, commits exact paths, attaches receipt+commit, then
       usageJson: { costStatus: "reported", costUsd: 1.5 },
       contextSnapshot: { issueId: "i1", paperclipWorkspace: { cwd: f.wt, worktreePath: f.wt, branchName: "paperclip/ZEI-1" } },
       resultJson: { summary: `${RECEIPT_BEGIN}\n${JSON.stringify(claims)}\n${RECEIPT_END}`, stopReason: "stop" },
+      sessionParams: { sessionId: "omp-1", cwd: f.wt, sessionDir },
     };
-    const executionReceipt = buildExecutionReceipt({ run: paperclipRun, issueId: "i1", objective, claims });
+    const executionReceipt = buildExecutionReceipt({ run: paperclipRun, issueId: "i1", objective, claims, goalGate });
     const assessment = {
       schemaVersion: "AssessmentV1", assessmentId: "assessment-reviewer-run",
       objective: executionReceipt.objective, executionRunId: "engineer-run", executionReceiptHash: hashValue(executionReceipt),
@@ -104,5 +118,94 @@ test("run validates evidence, commits exact paths, attaches receipt+commit, then
     assert.deepEqual(f.g("show", "paperclip/ZEI-1", "--name-only", "--format=").trim().split("\n"), ["bin/view.py"]);
     assert.deepEqual(writes.map((w) => w.method), ["PUT", "POST", "PATCH"]);
     assert.ok(fs.readdirSync(path.join(cfg._root, "receipts")).some((n) => n.startsWith("promotion-")));
+  } finally { f.cleanup(); }
+});
+
+test("promotion refuses a run whose goal gate never completed, before any write", async () => {
+  // The gate is the run's own proof. A gate whose goal settled ACTIVE is the
+  // extension's honest record of an unfinished attempt, and promotion must
+  // refuse on it BEFORE the assessment PUT, the work-product POST, the issue
+  // PATCH, or any git command.
+  const f = fixture();
+  try {
+    const objective = {
+      objectiveId: "ZEI-1", revision: 1, objectiveHash: "sha256:" + "a".repeat(64), criteriaHash: "sha256:" + "b".repeat(64),
+      repository: { path: f.primary, baseCommit: f.base, branch: "paperclip/ZEI-1" },
+      permissions: { filesystem: { write: ["bin/view.py"] } }, limits: { costCeilingUsd: 4 },
+      acceptanceCriteria: [{ id: "AC-1", command: { argv: ["node", "--version"], cwd: "." } }],
+    };
+    const cs = computeChangeSet(f.wt, f.base);
+    const claims = {
+      schemaVersion: "ExecutionReceiptClaimsV1",
+      objective: { objectiveId: "ZEI-1", revision: 1, objectiveHash: objective.objectiveHash, criteriaHash: objective.criteriaHash },
+      repository: { baseCommit: f.base, headCommit: f.base, branch: "paperclip/ZEI-1", diffHash: computeDiffHash(cs), paths: cs.paths },
+      checks: [], observations: ["fixed"], conclusions: ["ready"], unresolvedConditions: [], warnings: [],
+      terminal: { status: "ready_for_review", stopReason: "complete" },
+    };
+    const validGate = {
+      schemaVersion: "EngineerGoalGateV1",
+      runId: "engineer-run", taskId: "i1", sessionId: "omp-1", goalId: "goal-1",
+      goalObjectiveHash: objective.objectiveHash,
+      objectiveId: "ZEI-1", revision: 1,
+      objectiveHash: objective.objectiveHash, criteriaHash: objective.criteriaHash,
+      goalStatus: "complete", continuations: 1, terminal: true,
+      observedAt: "2026-09-02T10:00:00.000Z",
+    };
+    // On disk, the goal never completed: the gate the control plane will
+    // actually load says the attempt settled with its goal still active.
+    const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), "promote-gate-"));
+    fs.writeFileSync(path.join(sessionDir, "goal-gate-engineer-run.json"),
+      JSON.stringify({ ...validGate, goalStatus: "active", terminal: false }));
+    const paperclipRun = {
+      id: "engineer-run", agentId: "engineer", status: "succeeded",
+      startedAt: "2026-08-31T10:00:00.000Z", finishedAt: "2026-08-31T10:01:00.000Z", sessionIdAfter: "omp-1",
+      usageJson: { costStatus: "reported", costUsd: 1.5 },
+      contextSnapshot: { issueId: "i1", paperclipWorkspace: { cwd: f.wt, worktreePath: f.wt, branchName: "paperclip/ZEI-1" } },
+      resultJson: { summary: `${RECEIPT_BEGIN}\n${JSON.stringify(claims)}\n${RECEIPT_END}`, stopReason: "stop" },
+      sessionParams: { sessionId: "omp-1", cwd: f.wt, sessionDir },
+    };
+    // The assessment binds to the receipt a VALID gate would have produced;
+    // promotion must still refuse, because the gate it loads is not complete.
+    const executionReceipt = buildExecutionReceipt({ run: paperclipRun, issueId: "i1", objective, claims, goalGate: validGate });
+    const assessment = {
+      schemaVersion: "AssessmentV1", assessmentId: "assessment-reviewer-run",
+      objective: executionReceipt.objective, executionRunId: "engineer-run", executionReceiptHash: hashValue(executionReceipt),
+      reviewer: { agentName: "OMP Reviewer", modelFamily: "openai-codex" },
+      repository: { baseCommit: f.base, headCommit: f.base, diffHash: computeDiffHash(cs), changedPaths: ["bin/view.py"] },
+      deterministicResults: [{ criterionId: "AC-1", argv: ["node", "--version"], exitCode: 0, passed: true, outputHash: "sha256:" + "e".repeat(64) }],
+      criteria: [{ criterionId: "AC-1", verdict: "PASS", evidenceRefs: ["check"], reasoning: "pass", uncertainty: null }],
+      overallVerdict: "PASS", assessedAt: "2026-08-31T10:02:00.000Z",
+    };
+    const issue = {
+      id: "i1", identifier: "ZEI-1", status: "in_review", assigneeUserId: "operator",
+      executionState: { currentStageType: "approval", currentParticipant: { type: "user", userId: "operator" }, returnAssignee: { type: "agent", agentId: "engineer" } },
+    };
+    const writes = [];
+    const api = {
+      health: async () => ({ status: "ok" }),
+      getOptional: async () => null,
+      get: async (p) => {
+        if (p === "/api/companies") return [{ id: "c1", name: "Local Factory" }];
+        if (p === "/api/companies/c1/issues") return [{ id: "i1", identifier: "ZEI-1" }];
+        if (p === "/api/issues/i1") return issue;
+        if (p === "/api/issues/i1/documents/spec") return { body: "SPEC" };
+        if (p === "/api/issues/i1/documents/assessment") return { body: JSON.stringify(assessment) };
+        if (p === "/api/issues/i1/runs") return [{ runId: "engineer-run", agentId: "engineer", status: "succeeded" }];
+        if (p === "/api/heartbeat-runs/engineer-run") return paperclipRun;
+        throw new Error(`GET ${p}`);
+      },
+      mutate: async ({ method }) => { writes.push(method); throw new Error("no write may happen"); },
+    };
+    const cfg = {
+      _root: path.join(f.root, "factory"), company: { name: "Local Factory" },
+      issues: [{ identifier: "ZEI-1", objectiveDocument: { key: "spec", body: "SPEC", objective } }],
+    };
+    await assert.rejects(
+      () => run(cfg, { _: ["promote", "ZEI-1"], flags: { assessment: hashValue(assessment) } }, {
+        connect: () => api, requireHealthy: (x) => x.health(), C: { green: (x) => x, dim: (x) => x },
+      }),
+      /goal gate goalStatus contradicts/,
+    );
+    assert.deepEqual(writes, [], "promotion must not write anything for an unproven goal");
   } finally { f.cleanup(); }
 });

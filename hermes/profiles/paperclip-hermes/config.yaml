@@ -1,0 +1,72 @@
+# Hermes profile config for the Paperclip Hermes Generalist.
+#
+# REPOSITORY TEMPLATE, materialized by `factory materialize --apply`
+# (lib/materialize.js) into ~/.hermes/profiles/paperclip-hermes/config.yaml.
+# The operator's personal Hermes state at ~/.hermes stays local and private;
+# ops/hermes-bwrap.sh masks it at the mount layer on every factory run.
+# This template contains no personal content and no credentials, ever.
+#
+# This profile is a whole HERMES_HOME: selected by
+# HERMES_HOME=~/.hermes/profiles/paperclip-hermes (equivalently
+# `hermes -p paperclip-hermes`), so config, SOUL.md, sessions, and caches
+# all resolve inside it. Every key below deep-merges over DEFAULT_CONFIG
+# (hermes_cli/config_defaults.py); anything not mentioned inherits.
+#
+# Model and provider are NOT pinned here: the hermes_local adapter passes
+# -m/--provider on every chat invocation (adapterConfig.model/provider).
+
+# MCP: no servers. `mcp_servers` is the per-server definition table
+# (config_defaults.py:743-744 calls it out as distinct from the `mcp` runtime
+# block); an empty mapping defines zero servers. Auto-reload is pointless
+# without servers and would only churn the tool surface.
+mcp_servers: {}
+mcp:
+  auto_reload_on_config_change: false
+
+# Memory. Real keys from config_defaults.py "memory" block (:2039-2066):
+#   memory_enabled      bool, default true  — MEMORY.md self-notes store
+#   user_profile_enabled bool, default true — USER.md user-preference store
+#   provider            str,  default ""    — external memory plugin
+# memory_enabled is OFF: the agent keeps no self-written notes across runs,
+# so no run content persists outside the reviewed change set. The external
+# provider stays empty (built-in only, and the built-in notes half is off).
+# user_profile_enabled stays ON deliberately: it loads ONLY this profile's
+# memories/USER.md — the reduced, factory-only preference file the
+# materializer owns (hermes reads it from $HERMES_HOME/memories/USER.md;
+# tools/memory_tool.py:66,343). The operator's personal memories/ is masked
+# by ops/hermes-bwrap.sh, so nothing personal can reach this store.
+memory:
+  memory_enabled: false
+  user_profile_enabled: true
+  provider: ""
+
+# Delegation. Real keys from config_defaults.py "delegation" block (:2072-2150):
+#   max_spawn_depth          int, default 1 — 1 = flat: children cannot spawn
+#                            children (tools/delegate_tool.py:_get_max_spawn_depth)
+#   max_concurrent_children  int, default 10 — unified per-batch + background cap
+# Plus the per-turn spawn cap (config_defaults.py:801-804,
+# tool_loop_guardrails.loop_caps.max_subagents, default 50): at most three
+# children per turn. Depth stays 1 and total children are capped at 3.
+delegation:
+  max_spawn_depth: 1
+  max_concurrent_children: 3
+tool_loop_guardrails:
+  loop_caps:
+    max_subagents: 3
+
+# Cron and Kanban are GATEWAY subsystems, not chat flags: `hermes chat -q`
+# (the only shape the adapter spawns) runs neither dispatcher, and there is
+# no config key that disables the cron scheduler wholesale — so the wrapper
+# masks ~/.hermes/cron/ at the mount layer as the real boundary. The keys
+# below pin every config-reachable control anyway:
+#   cron.allow_agent_scheduling (config_defaults.py:2697, default false) —
+#     cron-spawned agents may not create or edit scheduled jobs.
+#   kanban.dispatch_in_gateway (:2820, default true) — no dispatcher here.
+#   kanban.review_dispatch (:2824, default true) — no auto-spawned reviewers.
+#   kanban.auto_subscribe_on_create (:2814, default true) — no task events.
+cron:
+  allow_agent_scheduling: false
+kanban:
+  dispatch_in_gateway: false
+  review_dispatch: false
+  auto_subscribe_on_create: false

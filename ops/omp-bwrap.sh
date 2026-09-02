@@ -25,9 +25,14 @@
 #   mitigation is credentials, not connectivity — see the strip list below. Do
 #   not put production or external-effect credentials in this environment.
 #
-#   ~/.omp/agent is writable. OMP keeps its model database, config, and caches
-#   there and does not run without them. It is shared across runs, so it is
-#   residual shared state, not isolation. Named here rather than hidden.
+#   OMP state is writable, and WHICH state depends on the run's profile.
+#   With OMP_PROFILE set (adapterConfig.env) the profile's own state root,
+#   ~/.omp/profiles/<profile>/agent, is bound writable and the operator's
+#   global ~/.omp/agent stays read-only: the agent's config, sessions,
+#   caches, and skills live under its profile and cannot bleed into the
+#   operator's global model-role table. Without a profile the historical
+#   ~/.omp/agent binding remains. Either way that state is shared across
+#   runs, so it is residual shared state, not isolation. Named, not hidden.
 set -euo pipefail
 
 REAL_OMP="${FACTORY_REAL_OMP:-$(command -v omp || echo "$HOME/.bun/bin/omp")}"
@@ -51,6 +56,30 @@ command -v bwrap >/dev/null 2>&1 || {
 WT="${PAPERCLIP_WORKSPACE_WORKTREE_PATH:-}"
 CWD="${PAPERCLIP_WORKSPACE_CWD:-$PWD}"
 
+# -------------------------------------------------------------------- profile
+# Which OMP profile this run uses, told to us by the environment the adapter
+# provides: OMP_PROFILE (set through adapterConfig.env — the same variable
+# OMP itself reads) or PAPERCLIP_OMP_PROFILE. A profile means a per-profile
+# state root below; no profile means the legacy global state root.
+PROFILE="${OMP_PROFILE:-${PAPERCLIP_OMP_PROFILE:-}}"
+PROFILE_DIR=""
+if [ -n "$PROFILE" ]; then
+  # Fail closed on anything that could build a path out of the state tree:
+  # no ".." substring (covers "." and ".." via the regex anchor as well as
+  # names like "a..b"), no trailing dot, and the adapter's own profile-name
+  # grammar. bwrap would confine the result anyway; this refuses earlier.
+  case "$PROFILE" in
+    *..*|*.) echo "FATAL: invalid OMP profile name '$PROFILE'" >&2; exit 65 ;;
+  esac
+  [[ "$PROFILE" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || {
+    echo "FATAL: invalid OMP profile name '$PROFILE'" >&2; exit 65; }
+  PROFILE_DIR="$HOME/.omp/profiles/$PROFILE/agent"
+  [ -d "$PROFILE_DIR" ] || {
+    echo "FATAL: OMP profile state $PROFILE_DIR does not exist." >&2
+    echo "       Run 'factory materialize --apply' to create it." >&2
+    exit 78; }
+fi
+
 args=(
   --unshare-pid --unshare-ipc --unshare-uts
   --die-with-parent          # sandbox dies with the adapter; no orphaned agents
@@ -58,7 +87,8 @@ args=(
   --ro-bind / /
   --dev /dev
   --proc /proc
-  --tmpfs /tmp               # fresh, private, discarded at exit
+  --tmpfs /tmp               # fresh, private, discarded at exit; mount order is
+                             # load-bearing: must precede the worktree bind
 )
 
 # ---------------------------------------------------------------- writable set
@@ -95,13 +125,45 @@ else
   echo "omp-bwrap: no PAPERCLIP_WORKSPACE_WORKTREE_PATH — no writable repository path" >&2
 fi
 
-# OMP's own state. Required for it to start at all; see the caveat in the header.
-for d in "$HOME/.omp/agent" "$HOME/.omp/logs" "$HOME/.omp/run" "$HOME/.omp/paperclip"; do
+# OMP's own state. Required for it to start at all; see the caveat in the
+# header. logs/run/paperclip stay writable in BOTH cases: ~/.omp/paperclip
+# holds the adapter's session dirs and the goal-guard extension writes its
+# gate record there. The agent dir is the profile's when a profile is set —
+# the operator's global ~/.omp/agent is then NOT bound writable, so the
+# global model-role table and its caches are read-only to every factory run.
+for d in "$HOME/.omp/logs" "$HOME/.omp/run" "$HOME/.omp/paperclip"; do
   [ -d "$d" ] && args+=( --bind "$d" "$d" )
 done
+if [ -n "$PROFILE_DIR" ]; then
+  args+=( --bind "$PROFILE_DIR" "$PROFILE_DIR" )
+else
+  [ -d "$HOME/.omp/agent" ] && args+=( --bind "$HOME/.omp/agent" "$HOME/.omp/agent" )
+fi
 # The adapter's per-agent session directory, wherever it placed it.
 if [ -n "${PAPERCLIP_SESSION_DIR:-}" ] && [ -d "${PAPERCLIP_SESSION_DIR}" ]; then
   args+=( --bind "$PAPERCLIP_SESSION_DIR" "$PAPERCLIP_SESSION_DIR" )
+fi
+
+# --------------------------------------------------- ambient personal context
+# The operator's global CLAUDE.md is ambient instruction material: any loader
+# that discovers it would hand every factory run the operator's personal
+# standing context. adapterConfig.noRules:true disables that discovery; this
+# mask is the mount-layer backstop, which holds even if the adapter config
+# drifts. bwrap applies mounts in order and later mounts win, so it must come
+# AFTER the --ro-bind / / set above. Verified against bwrap 0.6.1:
+# --ro-bind /dev/null over a regular-file target fails (EACCES on open), so
+# the source is a REAL empty file. Skills are deliberately NOT masked —
+# ~/.claude/skills and
+# ~/.claude/plugins/cache/claude-plugins-official/superpowers/6.3.0/skills
+# stay readable through --ro-bind / /, so the approved skill allowlist keeps
+# resolving.
+if [ -f "$HOME/.claude/CLAUDE.md" ]; then
+  EMPTY_MASK="$HOME/.cache/factory/empty-mask"
+  mkdir -p "$(dirname "$EMPTY_MASK")" 2>/dev/null || true
+  [ -f "$EMPTY_MASK" ] || : > "$EMPTY_MASK" 2>/dev/null || {
+    echo "FATAL: cannot create mask file $EMPTY_MASK; refusing to run unmasked" >&2
+    exit 73; }
+  args+=( --ro-bind "$EMPTY_MASK" "$HOME/.claude/CLAUDE.md" )
 fi
 
 # ------------------------------------------------------- credential reduction

@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://factory.local/schemas/EngineerHandoffReceiptV1.schema.json",
+  "title": "EngineerHandoffReceiptV1",
+  "description": "Returned by the handoff helper after Paperclip created the child issue, materialized the objective, activated the child as runnable, made it block the parent, and verified the stored document by semantic readback. The activation and readback consts make it structurally impossible to describe a half-finished handoff.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "parentIssueId", "parentIssueIdentifier", "childIssueId", "childIssueIdentifier", "idempotencyKey", "objectiveId", "revision", "objectiveHash", "criteriaHash", "specRevisionId", "activation", "readback"],
+  "properties": {
+    "schemaVersion": {
+      "const": "EngineerHandoffReceiptV1",
+      "description": "Pins the document to this contract so a receipt cannot validate against a different or future shape."
+    },
+    "parentIssueId": {
+      "type": "string", "minLength": 1,
+      "description": "Paperclip row id of the parent issue. Binds the receipt to a specific row, not just its identifier."
+    },
+    "parentIssueIdentifier": {
+      "type": "string", "pattern": "^[A-Z][A-Z0-9]+-[0-9]+$",
+      "description": "Identifier of the parent issue the handoff descended from; must match the draft that requested it."
+    },
+    "childIssueId": {
+      "type": "string", "minLength": 1,
+      "description": "Paperclip row id of the created child issue. Derived by the helper, never authored."
+    },
+    "childIssueIdentifier": {
+      "type": "string", "pattern": "^[A-Z][A-Z0-9]+-[0-9]+$",
+      "description": "Identifier Paperclip assigned to the child. Derived by the helper, never authored."
+    },
+    "idempotencyKey": {
+      "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{7,63}$",
+      "description": "Echoed verbatim from the draft so a receipt is always matchable to its originating request."
+    },
+    "objectiveId": {
+      "type": "string", "minLength": 1,
+      "description": "Id of the authoritative objective created for the child. The goal gate compares this exactly."
+    },
+    "revision": {
+      "type": "integer", "minimum": 1,
+      "description": "Revision of the objective at handoff time. The gate compares this exactly so a later edit cannot be laundered through an old receipt."
+    },
+    "objectiveHash": {
+      "$ref": "#/definitions/hash",
+      "description": "Hash of the objective body. Binding between the receipt and what the Engineer was actually told to do."
+    },
+    "criteriaHash": {
+      "$ref": "#/definitions/hash",
+      "description": "Hash of the acceptance criteria set. Binding between the receipt and the exact commands that prove the work."
+    },
+    "specRevisionId": {
+      "type": "string", "minLength": 1,
+      "description": "Id of the spec revision the objective document was materialized from; the audit trail from request to stored objective."
+    },
+    "activation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["assignedAgent", "status", "blocksParent"],
+      "description": "Post-conditions of activation. Every field is const-pinned or explicit so a receipt cannot describe a child that is not fully live.",
+      "properties": {
+        "assignedAgent": {
+          "type": "string", "minLength": 1,
+          "description": "Agent the child was assigned to; recorded so later runs can be checked against the intended executor."
+        },
+        "status": {
+          "const": "runnable",
+          "description": "A receipt exists only once the child is runnable. Any other activation state is a half-finished handoff and must not validate."
+        },
+        "blocksParent": {
+          "const": true,
+          "description": "The child must block the parent. False would let the parent proceed on unreviewed work."
+        }
+      }
+    },
+    "readback": {
+      "type": "object", "additionalProperties": false,
+      "required": ["verified", "documentBodyHash", "checkedAt"],
+      "description": "Evidence that what Paperclip stored is what was intended, from a semantic readback rather than HTTP success.",
+      "properties": {
+        "verified": {
+          "const": true,
+          "description": "Set only after the readback compared equal. False means the handoff is unverified and must not validate."
+        },
+        "documentBodyHash": {
+          "$ref": "#/definitions/hash",
+          "description": "Hash of the objective document body as read back from Paperclip; proves what was actually stored, not what was sent."
+        },
+        "checkedAt": {
+          "type": "string", "format": "date-time",
+          "description": "When the readback was performed; orders receipts against later writes to the same objective."
+        }
+      }
+    }
+  },
+  "definitions": {
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://factory.local/schemas/EngineerGoalGateV1.schema.json",
+  "title": "EngineerGoalGateV1",
+  "description": "Gate record written by the factory-owned goal-guard extension into the OMP session directory, outside the Engineer model's write reach. The control plane verifies it against the Paperclip run row before accepting an execution; every binding field is compared exactly so a gate cannot be replayed or forged from another objective.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "taskId", "sessionId", "goalId", "goalObjectiveHash", "objectiveId", "revision", "objectiveHash", "criteriaHash", "goalStatus", "continuations", "terminal", "observedAt"],
+  "properties": {
+    "schemaVersion": {
+      "const": "EngineerGoalGateV1",
+      "description": "Pins the document to this contract so a gate record cannot validate against a different or future shape."
+    },
+    "runId": {
+      "type": "string", "minLength": 1,
+      "description": "Paperclip run the gate was observed in. Compared to run.id so a gate from another run cannot be replayed."
+    },
+    "taskId": {
+      "type": "string", "minLength": 1,
+      "description": "Child issue id the run was dispatched for. Must equal the issue id the control plane is reconciling."
+    },
+    "sessionId": {
+      "type": "string", "minLength": 1,
+      "description": "OMP session id of the observed run; compared against the run row's post-run session id."
+    },
+    "goalId": {
+      "type": "string", "minLength": 1,
+      "description": "Native OMP goal id the guard extension observed; ties the gate to one concrete goal, not a summary claim."
+    },
+    "goalObjectiveHash": {
+      "$ref": "#/definitions/hash",
+      "description": "Hash of the objective as held in the OMP goal. Compared with the envelope objectiveHash to detect drift between dispatch and goal creation."
+    },
+    "objectiveId": {
+      "type": "string", "minLength": 1,
+      "description": "Id of the authoritative objective. Compared exactly against the control plane's objective."
+    },
+    "revision": {
+      "type": "integer", "minimum": 1,
+      "description": "Revision of the objective the goal was created from. Compared exactly so an edited objective cannot satisfy an old gate."
+    },
+    "objectiveHash": {
+      "$ref": "#/definitions/hash",
+      "description": "Hash of the objective body. Compared exactly with the authoritative objective."
+    },
+    "criteriaHash": {
+      "$ref": "#/definitions/hash",
+      "description": "Hash of the acceptance criteria set. Compared exactly with the authoritative objective."
+    },
+    "goalStatus": {
+      "enum": ["active", "paused", "budget-limited", "complete", "dropped"],
+      "description": "Terminal goal status as observed by the guard. Exactly the native OMP GoalStatus values; the control plane additionally requires complete before promoting."
+    },
+    "continuations": {
+      "type": "integer", "minimum": 0,
+      "description": "Count of session_stop continuation turns the guard scheduled. Non-negative so the count cannot imply budget that never existed."
+    },
+    "terminal": {
+      "type": "boolean",
+      "description": "True only when the guard observed a settled terminal state, not a turn that merely stopped."
+    },
+    "observedAt": {
+      "type": "string", "format": "date-time",
+      "description": "When the gate record was written; orders gates against later writes to the same run."
+    }
+  },
+  "definitions": {
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

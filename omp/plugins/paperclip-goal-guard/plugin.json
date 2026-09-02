@@ -1,0 +1,6 @@
+{
+  "name": "paperclip-goal-guard",
+  "version": "1.0.0",
+  "description": "The Engineer's runtime witness: records the native goal's lifecycle as a goal-gate file the Engineer itself cannot write, so the control plane can refuse any ready-for-review work whose goal never completed against the canonical objective.",
+  "author": "factory-stack"
+}

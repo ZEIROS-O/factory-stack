@@ -1,0 +1,55 @@
+# OMP profile state for the Paperclip OMP Engineer (role: engineer).
+#
+# Materialized by `factory materialize --apply` (lib/materialize.js) into
+# ~/.omp/profiles/paperclip-engineer/agent/config.yml — the profile state
+# root the omp_local adapter computes for adapterConfig.profile
+# (configRoot/profiles/<profile>/agent), giving this agent its own state,
+# session, cache, and skills roots, separate from the operator's
+# ~/.omp/agent. This file is a repository TEMPLATE: no personal content and
+# no credentials, ever.
+#
+# Model-role and fallback routing do NOT live here: they are pinned by
+# omp/base.overlay.yml, which adapterConfig.configFiles loads as a strict
+# `--config` overlay on every run.
+#
+# adapterConfig.noRules: true is what stops project and global Markdown
+# (AGENTS.md, CLAUDE.md, rules files) from being auto-loaded: the managed
+# instruction bundle plus the objective are the COMPLETE instructional
+# context this agent receives.
+#
+# Skill allowlist (delivered through adapterConfig.skills, not this file):
+#   using-superpowers, test-driven-development, systematic-debugging,
+#   verification-before-completion, dispatching-parallel-agents,
+#   receiving-code-review
+# All of those skills are verified to exist on this machine.
+
+# Mark setup as done so a fresh profile never drops into the setup wizard.
+setupVersion: 2
+
+# Memory OFF and auto-learn OFF. Real setting keys from OMP's settings schema
+# (pi-coding-agent dist/types/config/settings-schema.d.ts):
+#   "memory.backend"   enum off|local|hindsight|mnemopi|sharpshooter, default "off"
+#   "autolearn.enabled" boolean, default false
+# Both are stated explicitly rather than inherited: an agent whose memory
+# backend silently turns on would start persisting run content into
+# operator-visible state outside the reviewed change set.
+memory:
+  backend: off
+autolearn:
+  enabled: false
+
+# Subagent limits. These are CONFIG keys — the omp CLI has no
+# --delegation-depth or --max-children flags. Real setting keys:
+#   "task.maxRecursionDepth"  number, default 2  (0 = none, -1 = unlimited)
+#   "task.maxConcurrency"     number, default 32 (0 = unlimited)
+#   "task.maxRuntimeMs"       number, default 0  (0 = no hard runtime cap)
+#   "task.softRequestBudget"  number, default 200 (0 = disables the guard)
+# The Engineer delegates by default, so it gets depth 1 (subagents, but no
+# sub-subagents), a concurrency ceiling of 8, a 30-minute hard wall-clock cap
+# per subagent (matching the adapter's 1800s run timeout), and the default
+# soft request budget made explicit.
+task:
+  maxRecursionDepth: 1
+  maxConcurrency: 8
+  maxRuntimeMs: 1800000
+  softRequestBudget: 200

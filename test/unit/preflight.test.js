@@ -3,14 +3,22 @@
 // dispatch that fails halfway, or worse, one that appears to succeed.
 //
 // The launch gate is the most load-bearing. Everything that arms an OMP agent
-// reaches the CLI through adapterConfig.extraArgs and NOTHING else — the
-// adapter and the server both ignore configFiles/hooks/tools/pluginDirs
-// entirely. So a config can declare a full boundary, pass every other test, and
-// arm nothing. This gate runs the real configured argv and demands proof.
+// reaches the CLI through the adapter's FIRST-CLASS keys (tools, skills,
+// approvalMode, configFiles, extensions, pluginDirs, hooks) with extraArgs
+// appended last — @zhafron/paperclip-omp-adapter reads them all and turns
+// each into a real CLI flag. So a config can declare a full boundary, pass
+// every other test, and arm nothing. This gate rebuilds the real configured
+// argv and demands proof. The Hermes gate holds the Hermes adapter to the
+// same standard, via `hermes chat --help`; the denial gate proves the
+// Reviewer's task denial reaches the real OMP CLI through two layers.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { checkAgentLaunch, checkVerifier, summarize, adapterArgv } = require("../../lib/preflight");
+const path = require("node:path");
+const {
+  checkAgentLaunch, checkVerifier, checkHermesLaunch, checkReviewerDenial,
+  agentLaunchGate, summarize, adapterArgv, run,
+} = require("../../lib/preflight");
 
 const REVIEWER_ARGS = [
   "--config", "/repo/omp/reviewer.policy.yml",
@@ -162,4 +170,199 @@ test("preflight fails as a whole if any single gate fails", () => {
   assert.equal(summarize([pass, fail]).ok, false);
   assert.deepEqual(summarize([pass, fail]).failed.map((g) => g.name), ["b"]);
   assert.equal(summarize([]).ok, false, "a preflight that checked nothing has proven nothing");
+});
+
+// ── Hermes launch gate ───────────────────────────────────────────────────────
+// The probe runs `hermes chat --help` — argument parsing only, nothing billed,
+// no provider contacted — and passes only when the installed CLI advertises
+// every flag the configured argv would emit.
+const HELP_TEXT = [
+  "usage: hermes chat [-h] [-q QUERY | --query-file PATH] [--oneshot]",
+  "                   [--image IMAGE] [-m MODEL] [-t TOOLSETS]",
+  "                   [--provider PROVIDER] [-v] [-Q] [--resume SESSION_ID]",
+  "                   [--worktree] [--checkpoints] [--max-turns N] [--yolo]",
+  "                   [--source SOURCE] [--ignore-rules]",
+  "",
+  "options:",
+  "  --worktree, -w        Run in an isolated git worktree",
+  "  --ignore-rules        Skip auto-injection of AGENTS.md",
+].join("\n");
+
+test("the Hermes launch gate passes only when the installed CLI advertises every configured flag", () => {
+  const ok = checkHermesLaunch({
+    agentName: "Hermes Generalist",
+    adapterConfig: {
+      quiet: true, model: "anthropic/x", provider: "openrouter", toolsets: "fs",
+      maxTurnsPerRun: 3, worktreeMode: true, checkpoints: true, verbose: true,
+      extraArgs: ["--ignore-rules"],
+    },
+    exec: () => ({ status: 0, stdout: HELP_TEXT, stderr: "" }),
+  });
+  assert.equal(ok.ok, true, ok.detail);
+
+  // A flag the installed CLI does not know: the config is fine, the INSTALL is
+  // wrong, and the dispatch would die at argument parsing.
+  const missingFlag = checkHermesLaunch({
+    agentName: "Hermes Generalist",
+    adapterConfig: { maxTurnsPerRun: 3 },
+    exec: () => ({ status: 0, stdout: HELP_TEXT.replace("[--max-turns N] ", ""), stderr: "" }),
+  });
+  assert.equal(missingFlag.ok, false, "an unadvertised configured flag must fail");
+  assert.match(missingFlag.detail, /--max-turns/);
+});
+
+test("the Hermes launch gate treats an unrunnable, failing, or inconclusive probe as a failure", () => {
+  const enoent = checkHermesLaunch({
+    agentName: "Hermes Generalist", adapterConfig: {},
+    exec: () => ({ status: null, stdout: "", stderr: "", error: new Error("ENOENT") }),
+  });
+  assert.equal(enoent.ok, false, "a probe that could not run proves nothing");
+  assert.match(enoent.detail, /ENOENT|could not/i);
+
+  const nonzero = checkHermesLaunch({
+    agentName: "Hermes Generalist", adapterConfig: {},
+    exec: () => ({ status: 1, stdout: "", stderr: "argument parser blew up" }),
+  });
+  assert.equal(nonzero.ok, false, "a probe whose own command failed proves nothing");
+
+  const silent = checkHermesLaunch({
+    agentName: "Hermes Generalist", adapterConfig: {},
+    exec: () => ({ status: 0, stdout: "", stderr: "" }),
+  });
+  assert.equal(silent.ok, false, "empty output is inconclusive, not a pass");
+
+  const notUsage = checkHermesLaunch({
+    agentName: "Hermes Generalist", adapterConfig: {},
+    exec: () => ({ status: 0, stdout: "hello world", stderr: "" }),
+  });
+  assert.equal(notUsage.ok, false, "output that documents no chat subcommand is inconclusive");
+});
+
+// ── Reviewer task-denial gate ────────────────────────────────────────────────
+
+test("the reviewer task-denial gate asserts BOTH independent denial layers", () => {
+  const REAL = path.resolve(__dirname, "../../omp/reviewer.policy.yml");
+  const reviewer = { name: "OMP Reviewer",
+    adapterConfig: { tools: "read,grep,glob,lsp,todo,paperclip_review" } };
+
+  const ok = checkReviewerDenial({ agent: reviewer, policyPath: REAL });
+  assert.equal(ok.ok, true, ok.detail);
+
+  const granted = checkReviewerDenial({
+    agent: { name: "OMP Reviewer", adapterConfig: { tools: "read,task" } },
+    policyPath: REAL,
+  });
+  assert.equal(granted.ok, false, "task in the allowlist would arm paid fan-out");
+  assert.match(granted.detail, /task/);
+
+  const smuggled = checkReviewerDenial({
+    agent: { name: "OMP Reviewer",
+      adapterConfig: { tools: "read", extraArgs: ["--tools", "read,task"] } },
+    policyPath: REAL,
+  });
+  assert.equal(smuggled.ok, false,
+    "an allowlist smuggled through extraArgs --tools must be caught too");
+
+  const weakPolicy = checkReviewerDenial({
+    agent: reviewer, policyPath: "/synthetic.yml",
+    readFileSync: () => "tools:\n  approval:\n    bash: deny\n",
+  });
+  assert.equal(weakPolicy.ok, false,
+    "the CLI-layer allowlist must not be the only thing withholding the tool");
+  assert.match(weakPolicy.detail, /task: deny/);
+
+  const unreadable = checkReviewerDenial({
+    agent: reviewer, policyPath: "/no/such.yml",
+    readFileSync: () => { throw new Error("ENOENT: no such file"); },
+  });
+  assert.equal(unreadable.ok, false, "an unreadable policy overlay proves nothing");
+
+  const noReviewer = checkReviewerDenial({ agent: null, policyPath: REAL });
+  assert.equal(noReviewer.ok, false, "no reviewer agent means no denial is proven");
+});
+
+// ── routing by adapterType ──────────────────────────────────────────────────
+
+test("launch gates route by adapterType, never by role name", () => {
+  let seen = null;
+  const hermesExec = (cmd, args) => {
+    seen = args;
+    return { status: 0, stdout: HELP_TEXT, stderr: "" };
+  };
+  const hermes = agentLaunchGate({
+    name: "Hermes Generalist", adapterType: "hermes_local", adapterConfig: {},
+  }, { exec: hermesExec });
+  assert.equal(hermes.ok, true, hermes.detail);
+  assert.deepEqual(seen, ["chat", "--help"],
+    "a hermes_local agent is probed with the Hermes help probe, never OMP argv");
+
+  const ompExec = (cmd, args) => {
+    seen = args;
+    return reachedModel();
+  };
+  const omp = agentLaunchGate({
+    name: "OMP Engineer", adapterType: "omp_local",
+    adapterConfig: { configFiles: "/repo/omp/engineer.policy.yml" },
+  }, { exec: ompExec });
+  assert.equal(omp.ok, true, omp.detail);
+  assert.ok(seen.includes("factory-preflight/deliberately-invalid"),
+    "an omp_local agent is probed with OMP argv, never the Hermes probe");
+
+  const unknown = agentLaunchGate({
+    name: "X", adapterType: "pi_local", adapterConfig: {},
+  }, { exec: () => { throw new Error("no probe exists for this adapter"); } });
+  assert.equal(unknown.ok, false,
+    "an unknown adapterType has no probe; pretending either argv proves its launch would be a lie");
+  assert.match(unknown.detail, /pi_local/);
+
+  const hermesWithRequiredTool = agentLaunchGate({
+    name: "Hermes Generalist", adapterType: "hermes_local", adapterConfig: {},
+  }, { requireTool: "paperclip_review",
+    exec: () => { throw new Error("must not probe at all"); } });
+  assert.equal(hermesWithRequiredTool.ok, false,
+    "a role that requires a specific tool must fail closed on an adapter that cannot prove it");
+});
+
+// ── run(): the generalist gate is skipped until a generalist is declared ─────
+
+test("run() skips the Hermes gate while no generalist is declared, and runs it once declared", async () => {
+  const C = { red: (s) => s, green: (s) => s, dim: (s) => s };
+  const root = path.resolve(__dirname, "..", "..");
+  const baseCfg = {
+    _file: "factory.config.json", _root: root,
+    issues: [{ identifier: "Z-1" }],
+    agents: [
+      { name: "OMP Reviewer", role: "reviewer", adapterType: "omp_local",
+        adapterConfig: { tools: "read,paperclip_review" } },
+      { name: "OMP Engineer", role: "engineer", adapterType: "omp_local",
+        adapterConfig: { configFiles: "/repo/omp/engineer.policy.yml" } },
+    ],
+  };
+  const argvFor = { _: ["preflight", "Z-1"] };
+  const hermesAgent = { name: "Hermes Generalist", role: "generalist",
+    adapterType: "hermes_local", adapterConfig: {} };
+  const execWith = (hermesResult) => (cmd, args) => {
+    if (cmd === "bash") return { status: 0, stdout: "", stderr: "" };
+    if (args[0] === "chat") return hermesResult;
+    return reachedModel();
+  };
+  const stubs = (exec) => ({
+    connect: () => ({ baseUrl: "http://x" }),
+    requireHealthy: async () => {},
+    C, exec,
+  });
+
+  const rcNoGeneralist = await run(baseCfg, argvFor,
+    stubs(execWith({ status: null, stdout: "", stderr: "", error: new Error("ENOENT") })));
+  assert.equal(rcNoGeneralist, 0,
+    "no generalist declared: the gate is SKIPPED, so even an unrunnable hermes must not fail preflight");
+
+  const rcHermesOk = await run({ ...baseCfg, agents: [...baseCfg.agents, hermesAgent] },
+    argvFor, stubs(execWith({ status: 0, stdout: HELP_TEXT, stderr: "" })));
+  assert.equal(rcHermesOk, 0, "a declared generalist with an advertising CLI passes");
+
+  const rcHermesFails = await run({ ...baseCfg, agents: [...baseCfg.agents, hermesAgent] },
+    argvFor, stubs(execWith({ status: null, stdout: "", stderr: "", error: new Error("ENOENT") })));
+  assert.equal(rcHermesFails, 1,
+    "once declared, the generalist gate runs and an unrunnable hermes fails the summary");
 });

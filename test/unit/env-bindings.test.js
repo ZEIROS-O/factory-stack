@@ -57,6 +57,10 @@ test("normalization does not hide a MISSING or extra key", () => {
 function agentCfg(env) {
   return {
     name: "OMP Reviewer",
+    // Required now that managed keys are per-adapter: planAgents resolves the
+    // allowlist from adapterType and refuses an agent that declares none,
+    // rather than silently reconciling zero keys.
+    adapterType: "omp_local",
     adapterConfig: { model: "openai-codex/gpt-5.6-sol", env },
   };
 }

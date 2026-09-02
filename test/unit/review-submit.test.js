@@ -49,6 +49,19 @@ const EXECUTION_RECEIPT = {
   terminal: { status: "ready_for_review", stopReason: "complete" },
 };
 
+// The goal gate the Engineer's own runtime wrote for the run behind
+// EXECUTION_RECEIPT (lib/goal-gate.js). A ready-for-review submission now
+// refuses without it, before the first write.
+const GOAL_GATE = {
+  schemaVersion: "EngineerGoalGateV1",
+  runId: "engineer-run-1", taskId: "issue-uuid-1", sessionId: "omp-1", goalId: "goal-1",
+  goalObjectiveHash: OBJECTIVE.objectiveHash,
+  objectiveId: "ZEI-1", revision: 1,
+  objectiveHash: OBJECTIVE.objectiveHash, criteriaHash: OBJECTIVE.criteriaHash,
+  goalStatus: "complete", continuations: 1, terminal: true,
+  observedAt: "2026-09-02T10:00:00.000Z",
+};
+
 // A Paperclip that behaves like the shipped one: `body` on the wire, a fresh
 // revision id per document write, and a stage decision that REQUIRES a comment.
 function server({ assessment = null, issue = { id: "issue-uuid-1", status: "in_review", executionState: { currentStageType: "review", currentParticipant: { type: "agent", agentId: "reviewer-1" } } } } = {}) {
@@ -121,6 +134,7 @@ function call(overrides = {}) {
       exec: overrides.exec ?? passingExec,
       round: 1,
       executionReceipt: EXECUTION_RECEIPT,
+      goalGate: GOAL_GATE,
       changeSet: {
         baseCommit: "3cb8238", headCommit: "3cb8238",
         diffHash: "sha256:" + "d".repeat(64), changedPaths: ["bin/view.py"],
@@ -276,6 +290,7 @@ test("a write the server accepts but does not persist fails the review rather th
       reviewerModel: "openai-codex/gpt-5.6-sol", engineerModel: "anthropic/claude-opus-5",
       verifierPath: "/v", exec: passingExec, round: 1,
       executionReceipt: EXECUTION_RECEIPT,
+      goalGate: GOAL_GATE,
       changeSet: {
         baseCommit: "3cb8238", headCommit: "3cb8238", diffHash: "sha256:" + "d".repeat(64),
         changedPaths: ["bin/view.py"], paths: [{ path: "bin/view.py", sha256: "sha256:" + "c".repeat(64) }],
@@ -300,4 +315,23 @@ test("a status PATCH that returns 200 without changing the issue blocks stage ad
   const api = new PaperclipApi(ENV.PAPERCLIP_API_URL, { fetch: lying, authToken: ENV.PAPERCLIP_API_KEY });
   const { run } = call();
   await assert.rejects(() => run({ api }), /did not persist|200-and-do-nothing/i);
+});
+
+test("a ready-for-review submission without the goal gate refuses before writing anything", async () => {
+  // The gate is the run's own proof that its native goal completed against
+  // the objective. Remove it and the whole submission must refuse BEFORE the
+  // assessment PUT — no write may depend on the reviewer's good faith.
+  const { s, run } = call();
+  await assert.rejects(() => run({ goalGate: undefined }), /no verified goal gate/i);
+  assert.equal(s.state.calls.find((c) => c.method === "PUT" || c.method === "PATCH"), undefined,
+    "nothing may be written for an unproven goal");
+});
+
+test("a gate that does not bind to this run's session refuses before writing anything", async () => {
+  const { s, run } = call();
+  await assert.rejects(
+    () => run({ goalGate: { ...GOAL_GATE, sessionId: "omp-other" } }),
+    /goal gate sessionId contradicts/,
+  );
+  assert.equal(s.state.calls.find((c) => c.method === "PUT" || c.method === "PATCH"), undefined);
 });

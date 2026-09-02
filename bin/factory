@@ -7,12 +7,18 @@
 //   factory plan                            the actions that would close the gap, + hash
 //   factory apply --plan-hash <hash>        execute exactly that plan
 //   factory rollback --receipt <id>         restore an apply's pre-state and verify
+//   factory materialize --check|--apply     runtime profile templates -> profile roots
 //   factory preflight <issue>               every gate that must hold before dispatch
+//   factory handoff --draft <path>          validated Hermes -> Engineer child handoff
 //   factory promote <issue> --assessment <h>  commit the reviewed diff and approve
 //
 // `apply` requires --plan-hash on purpose. It makes "I reviewed this exact
 // change" mechanical rather than remembered: if live state or the config moved
 // between plan and apply, the hash no longer matches and the apply refuses.
+//
+// `materialize` is the only offline subcommand: it reconciles repository-owned
+// runtime profile templates into the OMP and Hermes profile roots on this
+// machine. It never contacts Paperclip, and `--check` never writes.
 
 const path = require("node:path");
 const { load } = require("../lib/config");
@@ -74,6 +80,12 @@ function installedVersions(cfg) {
   try {
     out.omp = String(execFileSync("omp", ["--version"], { encoding: "utf8" })).trim().replace(/^omp\//, "");
   } catch { out.omp = null; }
+  try {
+    // `hermes --version` prints a banner, not a bare version: its first line is
+    // "Hermes Agent v0.20.6 (2026.8.27) · upstream <sha>". Pin the semver only.
+    out.hermes = String(execFileSync("hermes", ["--version"], { encoding: "utf8" }))
+      .split("\n")[0].match(/v?(\d+\.\d+\.\d+)/)?.[1] ?? null;
+  } catch { out.hermes = null; }
   return out;
 }
 
@@ -244,13 +256,34 @@ async function main() {
   const name = args._[0];
   if (!name || name === "help" || args.flags.help) {
     console.log(require("node:fs").readFileSync(__filename, "utf8")
-      .split("\n").slice(2, 14).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
+      .split("\n").slice(2, 13).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
     return 0;
   }
   const cfg = load(process.env.FACTORY_CONFIG);
 
-  // preflight/promote live in their own modules; they are gates, not reconcilers.
+  // These live in their own modules; they are gates and reconcilers of things
+  // outside the Paperclip plan, not steps in it.
+  //
+  // `materialize` deliberately receives no `connect`: it is offline by
+  // construction, and handing it an API client would be the first step toward
+  // a second write path into the control plane.
+  //
+  // It returns a result object rather than an exit code, so render it here and
+  // derive the code. Returning the object straight to main() would make
+  // process.exit() coerce it to 1 and report every clean --check as a failure.
+  if (name === "materialize") {
+    const res = require("../lib/materialize").run(cfg, args, { C });
+    for (const t of res.targets) {
+      const mark = t.action === "ok" ? C.green("ok    ") : C.yellow(t.action.padEnd(6));
+      console.log(`  ${mark} ${t.path}  ${C.dim(t.reason)}`);
+    }
+    if (res.mode === "apply") console.log(C.green(`\nmaterialized ${res.targets.length} target(s)`));
+    else if (res.ok) console.log(C.green("\nprofiles match the repository templates"));
+    else console.log(C.yellow("\nprofiles drift — run `factory materialize --apply` to reconcile"));
+    return res.mode === "apply" || res.ok ? 0 : 1;
+  }
   if (name === "preflight") return require("../lib/preflight").run(cfg, args, { connect, requireHealthy, C });
+  if (name === "handoff") return require("../lib/handoff").run(cfg, args, { connect, requireHealthy, C });
   if (name === "promote") return require("../lib/promote").run(cfg, args, { connect, requireHealthy, C });
 
   const fn = COMMANDS[name];
