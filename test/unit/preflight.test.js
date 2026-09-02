@@ -330,6 +330,7 @@ test("run() skips the Hermes gate while no generalist is declared, and runs it o
   const root = path.resolve(__dirname, "..", "..");
   const baseCfg = {
     _file: "factory.config.json", _root: root,
+    company: { name: "Local Factory" },
     issues: [{ identifier: "Z-1" }],
     agents: [
       { name: "OMP Reviewer", role: "reviewer", adapterType: "omp_local",
@@ -346,8 +347,21 @@ test("run() skips the Hermes gate while no generalist is declared, and runs it o
     if (args[0] === "chat") return hermesResult;
     return reachedModel();
   };
+  // The fake serves the run history too: preflight now asks whether this issue
+  // is already repeating a launch failure, and an unreadable history fails
+  // closed by design.
+  const cleanHistoryApi = {
+    baseUrl: "http://x",
+    get: async (p) => {
+      if (p === "/api/companies") return [{ id: "c1", name: "Local Factory" }];
+      if (p === "/api/companies/c1/issues") return [{ id: "z1", identifier: "Z-1" }];
+      if (p === "/api/issues/z1") return { id: "z1", identifier: "Z-1" };
+      if (p === "/api/issues/z1/runs") return [];
+      throw new Error(`GET ${p}`);
+    },
+  };
   const stubs = (exec) => ({
-    connect: () => ({ baseUrl: "http://x" }),
+    connect: () => cleanHistoryApi,
     requireHealthy: async () => {},
     C, exec,
   });
@@ -422,6 +436,7 @@ test("run() serves an undeclared issue by resolving its objective from the live 
       if (p === "/api/companies/c1/issues") return [{ id: "child-uuid", identifier: "ZEI-9" }];
       if (p === "/api/issues/child-uuid") return { id: "child-uuid", identifier: "ZEI-9" };
       if (p === "/api/issues/child-uuid/documents/spec") return { body: renderObjectiveDocument(objective) };
+      if (p === "/api/issues/child-uuid/runs") return [];
       throw new Error(`GET ${p}`);
     },
   };
@@ -461,4 +476,72 @@ test("run() fails an undeclared issue whose spec document never installed", asyn
 
   const rc = await run(cfg, { _: ["preflight", "ZEI-9"] }, stubs);
   assert.equal(rc, 1, "a child with no objective must not pass preflight");
+});
+
+// ── run(): the repeated-launch-failure gate ─────────────────────────────────
+
+test("run() refuses an issue that is already repeating an identical launch failure", async () => {
+  // The 2026-09-02 condition, replayed through the real entrypoint: nine
+  // adapter_failed runs and nothing changed between them. Every other gate
+  // passes; this one must still block the tenth dispatch.
+  const C = { red: (s) => s, green: (s) => s, dim: (s) => s };
+  const root = path.resolve(__dirname, "..", "..");
+  const failedRun = (i) => ({
+    runId: `r${i}`, status: "failed", errorCode: "adapter_failed",
+    invocationSource: i % 3 === 2 ? "assignment" : "automation",
+    createdAt: `2026-09-02T18:3${i}:00.000Z`, usageJson: { costUsd: 0 },
+  });
+  const api = {
+    baseUrl: "http://x",
+    get: async (p) => {
+      if (p === "/api/companies") return [{ id: "c1", name: "Local Factory" }];
+      if (p === "/api/companies/c1/issues") return [{ id: "i1", identifier: "Z-1" }];
+      if (p === "/api/issues/i1") return { id: "i1", identifier: "Z-1" };
+      if (p === "/api/issues/i1/runs") return [0, 1, 2, 3, 4, 5, 6, 7, 8].map(failedRun);
+      throw new Error(`GET ${p}`);
+    },
+  };
+  const cfg = {
+    _file: "factory.config.json", _root: root,
+    company: { name: "Local Factory" },
+    issues: [{ identifier: "Z-1" }],
+    agents: [
+      { name: "OMP Reviewer", role: "reviewer", adapterType: "omp_local",
+        adapterConfig: { tools: "read,paperclip_review" } },
+      { name: "OMP Engineer", role: "engineer", adapterType: "omp_local",
+        adapterConfig: { configFiles: "/repo/omp/engineer.policy.yml" } },
+    ],
+  };
+  const exec = (cmd) => (cmd === "bash" ? { status: 0, stdout: "", stderr: "" } : reachedModel());
+  const rc = await run(cfg, { _: ["preflight", "Z-1"] },
+    { connect: () => api, requireHealthy: async () => {}, C, exec });
+  assert.equal(rc, 1, "preflight must block a dispatch that would only repeat a known failure");
+});
+
+test("run() fails closed when the run history cannot be read", async () => {
+  const C = { red: (s) => s, green: (s) => s, dim: (s) => s };
+  const root = path.resolve(__dirname, "..", "..");
+  const api = {
+    baseUrl: "http://x",
+    get: async (p) => {
+      if (p === "/api/companies") return [{ id: "c1", name: "Local Factory" }];
+      if (p === "/api/companies/c1/issues") return [{ id: "i1", identifier: "Z-1" }];
+      throw new Error("route not found");
+    },
+  };
+  const cfg = {
+    _file: "factory.config.json", _root: root,
+    company: { name: "Local Factory" },
+    issues: [{ identifier: "Z-1" }],
+    agents: [
+      { name: "OMP Reviewer", role: "reviewer", adapterType: "omp_local",
+        adapterConfig: { tools: "read,paperclip_review" } },
+      { name: "OMP Engineer", role: "engineer", adapterType: "omp_local",
+        adapterConfig: { configFiles: "/repo/omp/engineer.policy.yml" } },
+    ],
+  };
+  const exec = (cmd) => (cmd === "bash" ? { status: 0, stdout: "", stderr: "" } : reachedModel());
+  const rc = await run(cfg, { _: ["preflight", "Z-1"] },
+    { connect: () => api, requireHealthy: async () => {}, C, exec });
+  assert.equal(rc, 1, "an unreadable history has not shown the issue is clear of the condition");
 });

@@ -105,6 +105,59 @@ Reverted in `74d3eff`. The proof it was wrong: correcting the config dropped
 - **Standing rule:** billed dispatch requires explicit operator approval, every
   time. Unknown or unreconciled cost is not zero.
 
+## 5f. The 3x3 adapter-failure burst — resolved 2026-09-02
+
+**The question.** ZEI-2 produced nine `adapter_failed` runs in eleven minutes
+on 2026-09-02, in three bursts of three at roughly 8-second intervals, all
+`costUsd: 0`. The audit plan named the emitter as unknown — Paperclip's
+scheduler versus the adapter — and made identifying it the gate on any retry
+work. `scheduledRetryAttempt` was `0` on the run first inspected, which argued
+against Paperclip's scheduled-retry counter and left the question open.
+
+**How it was settled.** From the 16 recorded runs plus the shipped server
+source. No dispatch, no spend. The plan proposed re-triggering a live adapter
+failure; that was unnecessary and would have been weaker evidence.
+
+**Each burst of three is three different things, which is why the count looked
+inexplicable:**
+
+| # | `invocationSource` | `retryOfRunId` | what it is |
+| --- | --- | --- | --- |
+| 1 | `automation` | absent | the dispatch |
+| 2 | `automation` | run #1 | an immediate retry of it |
+| 3 | `assignment` | absent | assignment pickup |
+
+`scheduledRetryAttempt` is `0` on all nine because the scheduled-retry path was
+never involved.
+
+**The three bursts are Paperclip's continuation recovery.**
+`@paperclipai/server/dist/services/recovery/service.js` holds `adapter_failed`
+in `TRANSIENT_INFRA_CONTINUATION_ERROR_CODES` with
+`CONTINUATION_RECOVERY_TRANSIENT_MAX_ATTEMPTS = 3` and a 60s base backoff.
+
+**So the failure taxonomy the plan proposed building already exists, server
+side, and it is bounded in both directions.** Transport-class failures retry
+three times; the reasoning side is capped by
+`DEFAULT_MAX_SUCCESSFUL_RUN_HANDOFF_ATTEMPTS = 1` in
+`recovery/successful-run-handoff.js`. The plan's premise that a taxonomy was
+missing is, on this evidence, wrong. What was missing was on the factory's
+side:
+
+1. **Nothing here read it,** so nine identical launches presented as an
+   unexplained storm rather than one condition with a known bound.
+2. **The taxonomy is a vendored constant this repo depended on and never
+   asserted.** A Paperclip upgrade could re-scope the blast radius silently.
+   `test/unit/failure-class.test.js` now reads the shipped files and fails if
+   they diverge from `lib/failure-class.js`.
+3. **Nothing refused the next dispatch.** The server's allowance is per
+   recovery episode, and reassigning the issue starts a fresh one — which is
+   how one broken config produced three full bursts rather than one. The
+   pre-dispatch gate in `lib/preflight.js` is the stop.
+
+**The $0 is where the failure landed, not a control.** All nine died before
+reaching a provider. The same nine launches past that boundary would have
+billed nine times.
+
 ## 5e. Claims that were investigated and are FALSE
 
 Recorded so they are not rediscovered and re-acted upon:
