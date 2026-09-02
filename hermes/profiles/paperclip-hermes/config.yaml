@@ -70,3 +70,18 @@ kanban:
   dispatch_in_gateway: false
   review_dispatch: false
   auto_subscribe_on_create: false
+
+# Skills. Real keys from agent/skill_utils.py:
+#   skills.external_dirs      list, default absent — extra skill roots
+#   skills.project_discovery  bool, default true  — load skills from the git
+#                             checkout the cwd sits in (<root>/.hermes/skills,
+#                             <root>/.agents/skills), when the root is trusted
+# This profile's ONLY skill is paperclip-engineer-handoff, which
+# lib/materialize.js installs into $HERMES_HOME/skills. external_dirs stays
+# unset (no extra roots) and project discovery is OFF: adapterConfig.cwd is a
+# neutral non-repository directory today, so project discovery already yields
+# nothing — but that makes the boundary a property of a value in a different
+# file. Stated here, pointing the agent at a repository cannot silently hand it
+# that repository's skills.
+skills:
+  project_discovery: false

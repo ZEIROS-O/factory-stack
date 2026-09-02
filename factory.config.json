@@ -31,7 +31,7 @@
     ],
     "paperclipai": "2026.824.1",
     "@zhafron/paperclip-omp-adapter": "0.1.3",
-    "omp": "18.0.10",
+    "omp": "18.1.2",
     "hermes": "0.20.6"
   },
 

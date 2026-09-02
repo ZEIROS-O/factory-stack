@@ -47,7 +47,9 @@
 //
 // WHAT THIS TOOL CANNOT DO, BY CONSTRUCTION
 //   - review a different issue: there is no issue parameter; the target comes
-//     from PAPERCLIP_TASK_ID and nothing else
+//     from PAPERCLIP_TASK_ID and nothing else, and the objective is then read
+//     from THAT issue's spec document — so the objective cannot be aimed
+//     somewhere else either
 //   - approve over a failing check: the disposition is derived, not accepted
 //   - reach any endpoint but the current issue's assessment document and its
 //     own status PATCH
@@ -78,7 +80,7 @@ if (!existsSync(path.join(FACTORY_ROOT, "lib/review.js"))) {
 
 const { submitReview } = require_(path.join(FACTORY_ROOT, "lib/review.js"));
 const { PaperclipApi } = require_(path.join(FACTORY_ROOT, "lib/api.js"));
-const { loadContract, verifyObjectiveHashes } = require_(path.join(FACTORY_ROOT, "lib/contracts.js"));
+const { resolveObjectiveForIssue } = require_(path.join(FACTORY_ROOT, "lib/objective.js"));
 const { computeChangeSet, computeDiffHash } = require_(path.join(FACTORY_ROOT, "lib/promote.js"));
 const { loadExecutionReceiptForReview } = require_(path.join(FACTORY_ROOT, "lib/execution-receipt.js"));
 
@@ -105,7 +107,7 @@ const factory: CustomToolFactory = pi => ({
     criteria: pi.zod
       .array(
         pi.zod.object({
-          criterionId: pi.zod.string().describe("Exact criterion id from the objective, e.g. ZEI-1-AC-01"),
+          criterionId: pi.zod.string().describe("Exact criterion id, copied verbatim from THIS issue's objective"),
           verdict: pi.zod.enum(["PASS", "FAIL", "BLOCKED", "UNCERTAIN"]),
           reasoning: pi.zod.string().describe("Concise reasoning for this verdict"),
           evidenceRefs: pi.zod.array(pi.zod.string()).describe("What you actually inspected"),
@@ -124,11 +126,36 @@ const factory: CustomToolFactory = pi => ({
   async execute(_toolCallId, params) {
     const env = process.env as Record<string, string>;
 
-    // The objective is read from the hash-bound envelope on disk and its hashes
-    // are re-verified here. A tampered objective must not be reviewable.
-    const objective = verifyObjectiveHashes(
-      loadContract(path.join(FACTORY_ROOT, "contracts/objectives/ZEI-1.json"), "ObjectiveEnvelopeV1"),
-    );
+    const api = new PaperclipApi(env.PAPERCLIP_API_URL, { authToken: env.PAPERCLIP_API_KEY });
+    const issue = await api.get(`/api/issues/${encodeURIComponent(env.PAPERCLIP_TASK_ID ?? "")}`);
+
+    // THE OBJECTIVE OF RECORD IS THE ISSUE'S OWN SPEC DOCUMENT.
+    //
+    // CORRECTED 2026-09-02: this used to load contracts/objectives/ZEI-1.json
+    // from the repository, which meant a Hermes-created child was reviewed
+    // against the wrong objective — or, once its criterion ids stopped
+    // matching, could not be reviewed at all. Whichever issue this run was
+    // dispatched for, its objective came from `factory handoff` or `factory
+    // apply` and lives on the issue. lib/objective.js re-verifies the
+    // envelope's own hashes and its identifier binding, so a tampered or
+    // misfiled document still cannot be reviewed.
+    //
+    // FAIL CLOSED ON A MISSING IDENTIFIER. resolveObjectiveForIssue skips its
+    // identifier binding when none is supplied, which is right for callers
+    // that have none and wrong here: that binding is the only check that
+    // catches a spec document misfiled onto another issue. `identifier` is a
+    // real column on the issues table, so its absence means the response shape
+    // moved — report that rather than review with one fewer guarantee.
+    if (!issue?.identifier) {
+      throw new Error(
+        `paperclip_review: issue ${env.PAPERCLIP_TASK_ID ?? "<unset>"} carries no identifier, so the ` +
+          `objective cannot be bound to it. Refusing to review rather than accepting whatever spec ` +
+          `document this issue happens to hold.`,
+      );
+    }
+    const objective = await resolveObjectiveForIssue({
+      api, issueId: issue.id, identifier: issue.identifier,
+    });
 
     const worktree = env.PAPERCLIP_WORKSPACE_WORKTREE_PATH ?? "";
     // DERIVED BY THE REVIEWER, not taken from the producer's account of its own
@@ -136,8 +163,6 @@ const factory: CustomToolFactory = pi => ({
     const changeSet = computeChangeSet(worktree, objective.repository.baseCommit);
     const head = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
-    const api = new PaperclipApi(env.PAPERCLIP_API_URL, { authToken: env.PAPERCLIP_API_KEY });
-    const issue = await api.get(`/api/issues/${encodeURIComponent(env.PAPERCLIP_TASK_ID ?? "")}`);
     const loadedReceipt = await loadExecutionReceiptForReview({ api, issue, objective });
 
     const result = await submitReview({

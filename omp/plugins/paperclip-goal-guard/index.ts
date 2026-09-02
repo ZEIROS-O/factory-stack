@@ -10,12 +10,39 @@
 //   mutation. Every decision rule lives in lib/goal-gate.js, imported here,
 //   so the runtime and the control plane cannot drift.
 //
-// WHY THE ENGINEER CANNOT FORGE THE RECORD
-//   omp/worktree-guard.js blocks every agent write tool whose target lies
-//   outside the assigned worktree, while ops/omp-bwrap.sh binds
-//   ~/.omp/paperclip writable. The gate lands in the session directory
-//   (under ~/.omp/paperclip for dispatched runs), so this factory-owned
-//   extension can write it and the Engineer model cannot.
+// WHAT THIS RECORD IS AND IS NOT — READ BEFORE TRUSTING IT
+//   CORRECTED 2026-09-02. This block previously claimed the Engineer model
+//   cannot forge the gate. That claim was FALSE, and it contradicted
+//   omp/worktree-guard.js, which says plainly of itself: "this file is no
+//   longer the boundary". Two facts defeat it:
+//
+//     - ops/omp-bwrap.sh binds ~/.omp/paperclip WRITABLE (:134), because the
+//       adapter's session dirs live there and this extension writes the gate
+//       into one of them;
+//     - omp/worktree-guard.js intercepts only NAMED file-edit tools (:27 —
+//       write/edit/multiedit/notebook/apply_patch/patch/create). The Engineer
+//       has unrestricted bash, which is not in that set.
+//
+//   So the Engineer's shell can write the same path this extension writes.
+//   An in-process extension and the model's own shell share one privilege
+//   domain; nothing inside a sandbox can be unforgeable to a process that is
+//   also inside it. Real unforgeability needs a privilege boundary (a
+//   separate uid, or an attester running outside the sandbox). Neither
+//   exists today.
+//
+//   WHAT THE GATE IS, THEN: a CORROBORATING runtime record, not proof. It
+//   still earns its place — it catches the ordinary failures, which are
+//   accident rather than attack: a run that never established a goal, a goal
+//   that never matched the spec, an attempt that ended non-terminal, a
+//   silently dropped extension. Its absence is still disproof and still
+//   fails closed. What it cannot do is establish anything against an
+//   Engineer that actively lies.
+//
+//   The independent checks that DO authenticate a party are in the control
+//   plane, outside this sandbox: lib/promote.js verifies the assessed run
+//   was produced by the issue's Engineer return-assignee, and the operator
+//   reads the diff before any promotion. Do not restore the old claim
+//   without building the privilege boundary that would make it true.
 //
 // LOADING — THE TRAP THIS FILE IS SHAPED TO AVOID
 //   OMP loads this module at discovery (the `--extension` flag pointing at

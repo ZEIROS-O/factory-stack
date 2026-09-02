@@ -36,15 +36,20 @@ Paperclip — sole company control plane
       │                                      │
       │                        controlled human promotion
       │
-      └── future mixed objective ───────► Hermes ──► OMP if needed
+      └── mixed/ambiguous objective ───► Hermes ──► child objective ──► OMP
 ```
 
 - **Paperclip** owns objectives, issues, assignment, schedules, budgets,
   approvals, status, retries, recovery, and audit. It is the only control plane.
 - **OMP** is the bounded technical execution runtime. The Engineer produces
   work; the Reviewer independently assesses it.
-- **Hermes is deferred.** Add it only after the direct Paperclip → OMP lane is
-  proven, and only for mixed/ambiguous/research objectives.
+- **Hermes is declared, not proven** (corrected 2026-09-02; it was described
+  here as deferred while `factory.config.json` already declared it). It is
+  configured for mixed/ambiguous/research objectives only, and reaches an
+  Engineer solely by creating a validated child objective through
+  `factory handoff` — never by executing work itself. No Hermes run has
+  executed yet, so the direct Paperclip → OMP lane is still the one to prove
+  first; the ordering advice was right even though the status was stale.
 - **Git** owns code, tests, documents, schemas, committed artifacts.
 - **Deterministic validators** establish mechanically observable facts. A
   model's claim is not evidence when reality can be inspected.

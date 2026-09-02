@@ -44,7 +44,11 @@ from the thing it is supposed to describe.
 
 Write the draft to a file and run:
 
-    factory handoff --draft <path-to-draft.json>
+    /home/lucascoh/factory-stack/bin/factory handoff --draft <path-to-draft.json>
+
+The path is absolute deliberately. `factory` is not on PATH, and you run from
+a neutral working directory that is not the repository, so a bare `factory`
+resolves to nothing.
 
 The helper validates the draft before touching the network, creates an
 unassigned backlog child that blocks the parent, installs the immutable

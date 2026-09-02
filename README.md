@@ -13,7 +13,7 @@ you → Paperclip issue → heartbeat (30s) → spawns a worker CLI → result o
 | `package.json` / `package-lock.json` | Pins `paperclipai` — never run it via floating `npx` |
 | `instructions/bundles.json` | Machine-owned bundle composition: roles, fragment order, byte caps |
 | `instructions/src/` | Source fragments — `_core.md` plus role and contract files. Compiled into each agent's `AGENTS.md`; never edit `out/` |
-| `instructions/compile.sh` | Compiles the three bundles (mode 0444) + SHA-256 manifest; `--check` is byte-read-only and never publishes |
+| `instructions/compile.sh` | Compiles the three bundles (`--write` installs mode 0444) + SHA-256 manifest; `--check` is byte-read-only, never publishes, and treats mode as advisory |
 | `docs/` | `FACTORY_KNOWLEDGE.md` index → `ARCHITECTURE.md`, `OPERATIONS.md`, `BUILD_HISTORY.md` |
 | `scripts/prove-restore.sh` | Proves a database backup actually restores |
 | `ops/paperclip-{start,status,stop}.sh` | Fail-closed lifecycle wrappers for the local Paperclip instance |
@@ -38,8 +38,15 @@ after a fresh backup has been restore-proven with `scripts/prove-restore.sh`.
 
 `factory.config.json` is the source of truth for configured agents, adapters,
 models, tools, instruction bundles, and budgets. The current desired state
-declares OMP Engineer and OMP Reviewer. A Hermes instruction source is retained
-as a dormant role template but is not currently configured for reconciliation.
+declares three agents: OMP Engineer, OMP Reviewer, and Hermes Generalist.
+
+Hermes is DECLARED but UNPROVEN. It is configured for reconciliation
+(`adapterType: hermes_local`, launched through `ops/hermes-bwrap.sh` against
+the `paperclip-hermes` profile), and `factory materialize` installs its
+profile and its one skill. No Hermes run has executed, so its context
+isolation, skill discovery, and handoff path are established by configuration
+and offline tests only — not by a live run. Treat it as ready to try, not as
+proven.
 
 The intended producer/reviewer boundary uses separate model families and a
 narrow read-only reviewer tool surface. Runtime provenance still needs to be
@@ -62,8 +69,11 @@ bash instructions/compile.sh --check  # byte-read-only drift check; NEVER publis
 `--write` installs each bundle mode `0444` (generated output is read-only to
 humans) and regenerates `instructions/manifest.sha256` in role order. `--check`
 is byte-read-only: it verifies composition, order, caps, forbidden-content
-guards, duplicate headings, the manifest, and the `0444` mode, with zero
-network calls and zero writes.
+guards, duplicate headings, and the manifest, with zero network calls and zero
+writes. Mode is ADVISORY in `--check`, never fatal (`compile.sh:194-201`): a
+fresh clone restores 0644, so a mode gate would fail a tree that is byte-
+perfect. Content drift is what fails the check, and it fails regardless of
+mode.
 
 The compiler writes only local files (`instructions/out/` +
 `instructions/manifest.sha256`) — it has no Paperclip credential path at all.

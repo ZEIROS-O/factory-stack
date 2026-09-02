@@ -27,6 +27,12 @@ const EXPECTED = [
   { template: "hermes/profiles/paperclip-hermes/config.yaml", root: "hermes" },
   { template: "hermes/profiles/paperclip-hermes/SOUL.md", root: "hermes" },
   { template: "hermes/profiles/paperclip-hermes/memories/USER.md", root: "hermes" },
+  // The handoff skill's source is the repository's canonical skills/ tree, not
+  // a hermes/profiles/ file, so its template path does not share the prefix of
+  // the four above. It lands at profiles/paperclip-hermes/skills/... — see
+  // test/unit/hermes-skill-delivery.test.js for why that destination is the
+  // only one hermes actually reads.
+  { template: "skills/paperclip-engineer-handoff/SKILL.md", root: "hermes" },
 ];
 
 const ALL_REPO_TEMPLATES = ["omp/base.overlay.yml", ...EXPECTED.map((e) => e.template)];
@@ -87,7 +93,7 @@ test("--check on an empty root reports every target create, exits non-ok, writes
   const res = materialize.run({}, ["--check"]);
   assert.equal(res.mode, "check");
   assert.equal(res.ok, false);
-  assert.deepEqual(res.targets.map((t) => t.action), ["create", "create", "create", "create", "create"]);
+  assert.deepEqual(res.targets.map((t) => t.action), EXPECTED.map(() => "create"));
   assert.deepEqual(res.targets.map((t) => t.template), EXPECTED.map((e) => e.template));
   // Zero writes: neither root may contain anything, not even a directory.
   assert.deepEqual(listTree(ompRoot), []);
@@ -99,7 +105,7 @@ test("--check on an empty root reports every target create, exits non-ok, writes
 test("--apply creates every target with the right content and mode; a second apply is idempotent down to the mtime", withRoots(() => {
   const res = materialize.run({}, ["--apply"]);
   assert.equal(res.ok, true);
-  assert.equal(res.written, 5);
+  assert.equal(res.written, EXPECTED.length);
 
   for (const e of EXPECTED) {
     const target = res.targets.find((t) => t.template === e.template);
@@ -113,7 +119,7 @@ test("--apply creates every target with the right content and mode; a second app
   const second = materialize.run({}, ["--apply"]);
   assert.equal(second.ok, true);
   assert.equal(second.written, 0, "second apply writes nothing");
-  assert.deepEqual(second.targets.map((t) => t.action), ["ok", "ok", "ok", "ok", "ok"]);
+  assert.deepEqual(second.targets.map((t) => t.action), EXPECTED.map(() => "ok"));
   assert.deepEqual(
     second.targets.map((t) => fs.statSync(t.path).mtimeNs),
     mtimes,
@@ -134,7 +140,7 @@ test("an operator-modified destination is refused without --force, with the path
   assert.equal(forced.ok, true);
   assert.deepEqual(fs.readFileSync(dest), realTemplateBytes("omp/profiles/paperclip-engineer/config.yml"));
   // The record now marks it as materializer-owned: a plain third apply is all ok.
-  assert.deepEqual(materialize.run({}, ["--apply"]).targets.map((t) => t.action), ["ok", "ok", "ok", "ok", "ok"]);
+  assert.deepEqual(materialize.run({}, ["--apply"]).targets.map((t) => t.action), EXPECTED.map(() => "ok"));
 }));
 
 test("an update over the materializer's OWN previous output is a routine refresh, not a refusal", withRoots(() => {
@@ -152,7 +158,7 @@ test("an update over the materializer's OWN previous output is a routine refresh
     const res = materialize.run({}, ["--apply"]);
     assert.equal(res.ok, true);
     assert.ok(fs.readFileSync(dest).toString().endsWith("# revised\n"));
-    assert.deepEqual(materialize.run({}, ["--apply"]).targets.map((t) => t.action), ["ok", "ok", "ok", "ok", "ok"]);
+    assert.deepEqual(materialize.run({}, ["--apply"]).targets.map((t) => t.action), EXPECTED.map(() => "ok"));
   } finally {
     fs.writeFileSync(templatePath, orig);
   }
@@ -233,7 +239,7 @@ test("run accepts the bin/factory parseArgs shape ({ _, flags })", withRoots(() 
   assert.equal(check.mode, "check");
   const apply = materialize.run({}, { _: ["materialize"], flags: { apply: true } });
   assert.equal(apply.ok, true);
-  assert.equal(apply.written, 5);
+  assert.equal(apply.written, EXPECTED.length);
   // And a third positional arg (C) from bin/factory is ignored harmlessly.
   assert.equal(materialize.run({}, { _: ["materialize"], flags: { check: true } }, {}).mode, "check");
 }));
