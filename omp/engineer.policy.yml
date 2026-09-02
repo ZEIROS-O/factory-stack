@@ -62,3 +62,38 @@ bash:
     - { match: "git rebase *",           approval: deny }
     - { match: "git commit --amend*",    approval: deny }
     - { match: "git config --global *",  approval: deny }
+
+# --------------------------------------------------------- execution bounds
+# MOVED HERE 2026-09-02 from omp/profiles/paperclip-engineer/config.yml.
+#
+# That file is read ONLY under `--profile`, and the factory dropped --profile:
+# OMP profiles isolate auth by design, so each profile started with no login
+# and no way to get one without a manual interactive /login. Isolation buys
+# nothing until the factory has its own credential to isolate, and it cost the
+# first canary two failures.
+#
+# These bounds are NOT optional dressing — they are what stops a subagent
+# fan-out from burning budget. Left in the profile file they would have
+# silently reverted to OMP's defaults (depth 2, concurrency 32, no runtime
+# cap). This overlay loads through --config on every run, profile or not.
+#
+# Real setting keys from OMP's settings schema:
+#   task.maxRecursionDepth  number, default 2  (0 = none, -1 = unlimited)
+#   task.maxConcurrency     number, default 32 (0 = unlimited)
+#   task.maxRuntimeMs       number, default 0  (0 = no hard runtime cap)
+#   task.softRequestBudget  number, default 200
+#   memory.backend          enum off|local|hindsight|mnemopi|sharpshooter
+#   autolearn.enabled       boolean, default false
+task:
+  maxRecursionDepth: 1      # subagents, but no sub-subagents
+  maxConcurrency: 8
+  maxRuntimeMs: 1800000     # 30 min, matching the adapter's run timeout
+  softRequestBudget: 200
+
+# Stated rather than inherited: an agent whose memory backend silently turned
+# on would persist run content into operator-visible state outside the
+# reviewed change set.
+memory:
+  backend: off
+autolearn:
+  enabled: false

@@ -350,13 +350,21 @@ test("a managed key the config no longer declares is REMOVED from the live agent
 
   assert.equal(actions.length, 1);
   const sent = actions[0].body.adapterConfig;
-  assert.ok(!("pluginDirs" in sent), "a retired key must be cleared, not silently preserved");
-  assert.ok(!("tools" in sent));
+  // CORRECTED 2026-09-02. This asserted the key was ABSENT from the body,
+  // which encoded a false belief about the server — the same trap
+  // documents-api-shape.test.js records, where the fake agreed with the code
+  // and both were wrong. Paperclip MERGES adapterConfig, so an omitted key is
+  // not mentioned and its old value survives. Clearing requires an explicit
+  // null, verified against the live instance.
+  assert.ok("pluginDirs" in sent, "the key must be present to be cleared");
+  assert.equal(sent.pluginDirs, null, "a retired key is cleared with an explicit null");
+  assert.equal(sent.tools, null);
 
   // And the removal must be verified on readback, not assumed.
   const removalCheck = actions[0].expect.find((e) => e.path === "adapterConfig.pluginDirs");
   assert.ok(removalCheck?.compare, "removal needs a readback assertion of its own");
   assert.equal(removalCheck.compare(undefined), true);
+  assert.equal(removalCheck.compare(null), true, "null is how this server reports a cleared key");
   assert.equal(removalCheck.compare("/repo/omp/plugins/paperclip-review"), false,
     "a server that keeps the key must fail the apply");
 });
@@ -381,6 +389,90 @@ test("a stale retired key is drift ON ITS OWN, even when everything else already
     actions,
   );
   assert.equal(actions.length, 1, "a leftover retired key must be reconciled away on its own");
-  assert.ok(!("pluginDirs" in actions[0].body.adapterConfig));
+  assert.equal(actions[0].body.adapterConfig.pluginDirs, null,
+    "cleared with an explicit null, because an omitted key merges away to no effect");
   assert.match(actions[0].what, /removing pluginDirs/);
+});
+
+// ── retiring a managed key requires an explicit null ─────────────────────────
+//
+// Found while dropping --profile. planAgents built the next adapterConfig by
+// DELETING the retired key and sending the object without it. Paperclip MERGES
+// adapterConfig on PATCH rather than replacing it, so an omitted key is simply
+// "not mentioned" and the old value survives: the write returns 200 and the
+// field never changes. The readback guard caught it — "did not persist
+// (1 field(s))" — which is exactly the 200-and-do-nothing class the reconciler
+// exists to detect, but the write could never have succeeded as built.
+//
+// Verified against the live instance: PATCH {adapterConfig:{profile:null}}
+// persists as null and leaves every sibling key intact.
+
+test("a retired adapterConfig key is sent as an explicit null, not omitted", () => {
+  const actions = [];
+  const cfg = {
+    agents: [{
+      name: "OMP Engineer", role: "engineer", adapterType: "omp_local",
+      adapterConfig: { command: "/ops/omp-bwrap.sh" },   // profile no longer declared
+    }],
+  };
+  const snap = {
+    agents: {
+      "OMP Engineer": {
+        id: "a1",
+        adapterConfig: { command: "/ops/omp-bwrap.sh", profile: "paperclip-engineer" },
+      },
+    },
+  };
+
+  planAgents(cfg, snap, actions);
+
+  const action = actions.find((a) => a.id === "agent:OMP Engineer:adapterConfig");
+  assert.ok(action, "retiring a key must produce an action");
+  assert.ok("profile" in action.body.adapterConfig,
+    "the key must be PRESENT in the body; an omitted key is merged away to no effect");
+  assert.equal(action.body.adapterConfig.profile, null,
+    "explicit null is what actually clears it on this server");
+});
+
+test("readback accepts either null or undefined for a retired key", () => {
+  const actions = [];
+  const cfg = {
+    agents: [{
+      name: "OMP Engineer", role: "engineer", adapterType: "omp_local",
+      adapterConfig: { command: "/ops/omp-bwrap.sh" },
+    }],
+  };
+  const snap = {
+    agents: {
+      "OMP Engineer": {
+        id: "a1",
+        adapterConfig: { command: "/ops/omp-bwrap.sh", profile: "paperclip-engineer" },
+      },
+    },
+  };
+
+  planAgents(cfg, snap, actions);
+  const check = actions
+    .find((a) => a.id === "agent:OMP Engineer:adapterConfig")
+    .expect.find((e) => e.path === "adapterConfig.profile");
+
+  assert.ok(check.compare(null), "null is a cleared key");
+  assert.ok(check.compare(undefined), "so is an absent one");
+  assert.ok(!check.compare("paperclip-engineer"), "the old value is not");
+});
+
+test("a key already cleared to null is NOT drift, so removal is idempotent", () => {
+  // The other half of the explicit-null fix. Once a retired key has been
+  // cleared, the live record carries `null` rather than dropping the key. If
+  // the drift detector reads that as "still present", every subsequent plan
+  // proposes the same removal forever and `factory diff` can never come back
+  // clean — which is exactly what happened on the first apply after the fix.
+  const actions = [];
+  planAgents(
+    reviewer({ command: "/x", extraArgs: ["--tools", "read"] }),
+    agentSnap({ command: "/x", extraArgs: ["--tools", "read"], pluginDirs: null, tools: null }),
+    actions,
+  );
+
+  assert.deepEqual(actions, [], "a cleared key is absent; proposing to clear it again is a loop");
 });

@@ -194,7 +194,7 @@ test("promotes a Hermes-created child that no config declares", async () => {
     const code = await run(
       cfg,
       { _: ["promote", "ZEI-2"], flags: { assessment: hashValue(assessment) } },
-      { connect: () => api, requireHealthy: (x) => x.health(), C: { green: (x) => x, dim: (x) => x } },
+      { connect: () => api, requireHealthy: (x) => x.health(), C: { green: (x) => x, dim: (x) => x, yellow: (x) => x } },
     );
 
     assert.equal(code, 0);

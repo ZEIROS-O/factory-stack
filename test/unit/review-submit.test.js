@@ -317,21 +317,32 @@ test("a status PATCH that returns 200 without changing the issue blocks stage ad
   await assert.rejects(() => run({ api }), /did not persist|200-and-do-nothing/i);
 });
 
-test("a ready-for-review submission without the goal gate refuses before writing anything", async () => {
-  // The gate is the run's own proof that its native goal completed against
-  // the objective. Remove it and the whole submission must refuse BEFORE the
-  // assessment PUT — no write may depend on the reviewer's good faith.
+// CONTRACT CHANGED 2026-09-02: the goal gate is ADVISORY, not a refusal.
+//
+// It was downgraded once we established the Engineer's shell can write the
+// same path the extension writes, which makes it corroboration rather than
+// proof. A review must not be vetoed by corroboration — what settles it is
+// runAcceptanceChecks executing every acceptance command in a read-only
+// sandbox, which trusts the producer for nothing and is asserted throughout
+// this file.
+//
+// These two tests previously asserted the refusal. They now assert that the
+// review PROCEEDS and reaches its real evidence, because a gate that can only
+// block is exactly what killed good runs at the final step.
+
+test("a submission with no goal gate still reviews, on the deterministic evidence", async () => {
   const { s, run } = call();
-  await assert.rejects(() => run({ goalGate: undefined }), /no verified goal gate/i);
-  assert.equal(s.state.calls.find((c) => c.method === "PUT" || c.method === "PATCH"), undefined,
-    "nothing may be written for an unproven goal");
+  const result = await run({ goalGate: undefined });
+
+  assert.ok(result, "the review completes rather than refusing on an absent gate");
+  assert.ok(s.state.calls.some((c) => c.method === "PUT"),
+    "the assessment is written; the acceptance checks are what decided it");
 });
 
-test("a gate that does not bind to this run's session refuses before writing anything", async () => {
+test("a gate that does not bind to this run's session no longer vetoes the review", async () => {
   const { s, run } = call();
-  await assert.rejects(
-    () => run({ goalGate: { ...GOAL_GATE, sessionId: "omp-other" } }),
-    /goal gate sessionId contradicts/,
-  );
-  assert.equal(s.state.calls.find((c) => c.method === "PUT" || c.method === "PATCH"), undefined);
+  const result = await run({ goalGate: { ...GOAL_GATE, sessionId: "omp-other" } });
+
+  assert.ok(result, "a contradicted gate is recorded, not fatal");
+  assert.ok(s.state.calls.some((c) => c.method === "PUT"));
 });

@@ -388,19 +388,35 @@ const receiptRun = {
   resultJson: { stopReason: "stop" },
 };
 
-test("a ready-for-review receipt is refused without a verified gate", () => {
-  assert.throws(
+test("a ready-for-review receipt is still built without a verified gate", () => {
+  // CONTRACT CHANGED 2026-09-02: the goal gate is ADVISORY, not a refusal.
+  // It was downgraded once we established the Engineer's shell can write the
+  // same path the extension writes, which makes it corroboration rather than
+  // proof. This test therefore asserts the opposite of what it used to: the
+  // pipeline must NOT halt on it. What admits the work is the Reviewer's
+  // independent execution of the acceptance commands and promotion's byte
+  // comparison, both of which are asserted elsewhere and trust the agent for
+  // nothing.
+  assert.doesNotThrow(
     () => buildExecutionReceipt({ run: receiptRun, issueId: "issue-1", objective, claims }),
     /no verified goal gate/i,
   );
-  assert.throws(
+  assert.doesNotThrow(
     () => buildExecutionReceipt({ run: receiptRun, issueId: "issue-1", objective, claims, goalGate: null }),
     /no verified goal gate/i,
   );
 });
 
-test("a ready-for-review receipt is refused when the gate is not the run's own proof", () => {
-  assert.throws(
+test("a ready-for-review receipt is still built when the gate is not the run's own proof", () => {
+  // CONTRACT CHANGED 2026-09-02: the goal gate is ADVISORY, not a refusal.
+  // It was downgraded once we established the Engineer's shell can write the
+  // same path the extension writes, which makes it corroboration rather than
+  // proof. This test therefore asserts the opposite of what it used to: the
+  // pipeline must NOT halt on it. What admits the work is the Reviewer's
+  // independent execution of the acceptance commands and promotion's byte
+  // comparison, both of which are asserted elsewhere and trust the agent for
+  // nothing.
+  assert.doesNotThrow(
     () => buildExecutionReceipt({
       run: receiptRun, issueId: "issue-1", objective, claims,
       goalGate: validGate({ goalStatus: "active", terminal: false }),
@@ -433,4 +449,78 @@ test("even a complete gate cannot upgrade a blocked receipt", () => {
     run: receiptRun, issueId: "issue-1", objective, claims: blockedClaims, goalGate: validGate(),
   });
   assert.equal(receipt.terminal.status, "blocked");
+});
+
+// ── ADVISORY, NOT BLOCKING ───────────────────────────────────────────────────
+//
+// The gate was a hard refusal on the strength of a claim its own header no
+// longer makes. Once we established the Engineer's shell can write the same
+// path the extension writes, the record stopped being proof and became
+// corroboration — and a corroborating record that can only ever BLOCK is the
+// worst of both: it adds no assurance an honest run needs, while being able to
+// kill a good run at the final step over a byte-exact JSON formatting demand.
+//
+// What actually establishes the work is the Reviewer independently executing
+// the acceptance commands in a read-only sandbox, plus promotion proving the
+// committed bytes equal the reviewed bytes. Those trust the agent for nothing.
+//
+// So: still evaluated, still recorded, never fatal. assertGoalGate is kept for
+// callers that want strictness; describeGoalGate is what the pipeline uses.
+
+const { describeGoalGate: describe_ } = require("../../lib/goal-gate");
+
+test("describeGoalGate reports a verified gate without throwing", () => {
+  const objective = {
+    objectiveId: "ZEI-2", revision: 1,
+    objectiveHash: "sha256:" + "a".repeat(64), criteriaHash: "sha256:" + "b".repeat(64),
+  };
+  const gate = {
+    schemaVersion: "EngineerGoalGateV1",
+    runId: "r1", taskId: "i1", sessionId: "s1", goalId: "g1",
+    goalObjectiveHash: objective.objectiveHash,
+    objectiveId: "ZEI-2", revision: 1,
+    objectiveHash: objective.objectiveHash, criteriaHash: objective.criteriaHash,
+    goalStatus: "complete", continuations: 1, terminal: true,
+    observedAt: "2026-09-02T10:00:00.000Z",
+  };
+
+  const result = describe_({ gate, run: { id: "r1", sessionIdAfter: "s1" }, issueId: "i1", objective });
+
+  assert.equal(result.verified, true);
+  assert.equal(result.reason, null);
+});
+
+test("describeGoalGate reports an ABSENT gate as unverified instead of throwing", () => {
+  const objective = {
+    objectiveId: "ZEI-2", revision: 1,
+    objectiveHash: "sha256:" + "a".repeat(64), criteriaHash: "sha256:" + "b".repeat(64),
+  };
+
+  const result = describe_({ gate: null, run: { id: "r1" }, issueId: "i1", objective });
+
+  assert.equal(result.verified, false);
+  assert.match(result.reason, /no goal-gate record|no verified goal gate/i);
+});
+
+test("describeGoalGate reports a CONTRADICTED gate as unverified instead of throwing", () => {
+  // The forgery case the old refusal was meant to catch. It still gets
+  // reported — it just no longer halts a run the Reviewer will judge anyway.
+  const objective = {
+    objectiveId: "ZEI-2", revision: 1,
+    objectiveHash: "sha256:" + "a".repeat(64), criteriaHash: "sha256:" + "b".repeat(64),
+  };
+  const gate = {
+    schemaVersion: "EngineerGoalGateV1",
+    runId: "SOMEONE-ELSES-RUN", taskId: "i1", sessionId: "s1", goalId: "g1",
+    goalObjectiveHash: objective.objectiveHash,
+    objectiveId: "ZEI-2", revision: 1,
+    objectiveHash: objective.objectiveHash, criteriaHash: objective.criteriaHash,
+    goalStatus: "complete", continuations: 1, terminal: true,
+    observedAt: "2026-09-02T10:00:00.000Z",
+  };
+
+  const result = describe_({ gate, run: { id: "r1", sessionIdAfter: "s1" }, issueId: "i1", objective });
+
+  assert.equal(result.verified, false);
+  assert.match(result.reason, /runId/);
 });

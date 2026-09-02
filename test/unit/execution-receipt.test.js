@@ -105,7 +105,7 @@ test("review resolves the latest succeeded return-assignee run from the current 
   ]);
 });
 
-test("the review load refuses a ready-for-review run whose gate is absent", async () => {
+test("the review load reports an absent gate without refusing the run", async () => {
   // The gate file is per-run; a session directory without this run's gate
   // means the run's own runtime never proved its goal complete.
   const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "execution-receipt-nogate-"));
@@ -120,18 +120,27 @@ test("the review load refuses a ready-for-review run whose gate is absent", asyn
     },
     getOptional: async () => null,
   };
-  await assert.rejects(() => loadExecutionReceiptForReview({ api, issue, objective }), /no verified goal gate/i);
+  // ADVISORY: an absent gate no longer refuses the load.
+  const loaded = await loadExecutionReceiptForReview({ api, issue, objective });
+  assert.equal(loaded.goalGate, null, "the absent gate is reported as absent, not thrown on");
+  assert.ok(loaded.receipt, "the receipt is still built so the Reviewer can judge the real evidence");
   fs.rmSync(emptyDir, { recursive: true, force: true });
 });
 
-test("a ready-for-review receipt requires the gate; blocked/failed/cancelled do not", () => {
+test("every terminal status builds a receipt; the gate gates nothing", () => {
   // The new admissibility rule: only the status that hands work to the
   // Reviewer demands the run's own proof of goal completion. An attempt that
   // legitimately blocks must still be able to report, and a gate can never
   // upgrade a blocked receipt into a ready one.
-  assert.throws(
-    () => buildExecutionReceipt({ run, issueId: "issue-1", objective, claims }),
-    /no verified goal gate/i,
+  // CONTRACT CHANGED 2026-09-02: the goal gate is ADVISORY, not a refusal.
+  // Downgraded once we established the Engineer's shell can write the same
+  // path the extension writes, making it corroboration rather than proof. The
+  // pipeline must not halt on it; the Reviewer's independent execution of the
+  // acceptance commands and promotion's byte comparison are what admit work,
+  // and both are asserted elsewhere.
+  assert.ok(
+    buildExecutionReceipt({ run, issueId: "issue-1", objective, claims }),
+    "a ready-for-review receipt builds without a gate; the gate is recorded, not required",
   );
   for (const status of ["blocked", "failed", "cancelled"]) {
     const terminalClaims = { ...claims, terminal: { status, stopReason: "blocked" } };

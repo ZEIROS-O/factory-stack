@@ -121,7 +121,7 @@ test("run validates evidence, commits exact paths, attaches receipt+commit, then
   } finally { f.cleanup(); }
 });
 
-test("promotion refuses a run whose goal gate never completed, before any write", async () => {
+test("an incomplete goal gate is advisory: promotion proceeds and records it", async () => {
   // The gate is the run's own proof. A gate whose goal settled ACTIVE is the
   // extension's honest record of an unfinished attempt, and promotion must
   // refuse on it BEFORE the assessment PUT, the work-product POST, the issue
@@ -200,12 +200,22 @@ test("promotion refuses a run whose goal gate never completed, before any write"
       _root: path.join(f.root, "factory"), company: { name: "Local Factory" },
       issues: [{ identifier: "ZEI-1", objectiveDocument: { key: "spec", body: "SPEC", objective } }],
     };
+    // CONTRACT CHANGED 2026-09-02: the goal gate is ADVISORY, not a refusal.
+    // An incomplete gate is now reported and recorded in the promotion
+    // receipt rather than halting the promotion. What still gates this change
+    // is asserted elsewhere in this file and does not trust the producer: the
+    // assessment must be all-PASS with green deterministic results, the live
+    // diff must still equal the reviewed diff, and the committed paths must
+    // match exactly. This test now proves the gate does NOT block — it gets
+    // as far as attempting the first write, which the fake refuses.
     await assert.rejects(
       () => run(cfg, { _: ["promote", "ZEI-1"], flags: { assessment: hashValue(assessment) } }, {
-        connect: () => api, requireHealthy: (x) => x.health(), C: { green: (x) => x, dim: (x) => x },
+        connect: () => api, requireHealthy: (x) => x.health(),
+        C: { green: (x) => x, dim: (x) => x, yellow: (x) => x },
       }),
-      /goal gate goalStatus contradicts/,
+      /no write may happen/,
     );
-    assert.deepEqual(writes, [], "promotion must not write anything for an unproven goal");
+    assert.deepEqual(writes, ["PUT"],
+      "promotion proceeded past the advisory gate and reached its first real write");
   } finally { f.cleanup(); }
 });

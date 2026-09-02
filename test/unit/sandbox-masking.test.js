@@ -199,3 +199,30 @@ test("omp-bwrap.sh still keeps the operator's global agent dir read-only under a
   assert.doesNotMatch(profileBranch.split("else")[0], /\$HOME\/\.omp\/agent/,
     "the global agent dir must never be bound writable while a profile is active");
 });
+
+// ── the task bounds must live where they are actually loaded ────────────────
+//
+// They used to live in omp/profiles/<agent>/config.yml, which OMP reads ONLY
+// under --profile. Dropping --profile (because profiles isolate auth by
+// design, and the factory has no separate credential to isolate yet) would
+// therefore have silently restored OMP's defaults: the Engineer from depth 1
+// to 2 with no runtime cap, and the Reviewer from no subagents at all to 2,
+// concurrency 32, and no cap. Those are budget-burn bounds, so they moved into
+// the `--config` policy overlays, which load on every run either way.
+const REPO = path.resolve(__dirname, "../..");
+const ENGINEER_POLICY = fs.readFileSync(path.join(REPO, "omp/engineer.policy.yml"), "utf8");
+const REVIEWER_POLICY = fs.readFileSync(path.join(REPO, "omp/reviewer.policy.yml"), "utf8");
+
+test("the engineer policy overlay carries the subagent and runtime bounds", () => {
+  assert.match(ENGINEER_POLICY, /^task:/m, "the overlay declares a task block");
+  assert.match(ENGINEER_POLICY, /maxRecursionDepth:\s*1\b/, "subagents yes, sub-subagents no");
+  assert.match(ENGINEER_POLICY, /maxConcurrency:\s*8\b/);
+  assert.match(ENGINEER_POLICY, /maxRuntimeMs:\s*1800000\b/, "30-minute hard cap per subagent");
+});
+
+test("the reviewer policy overlay withholds subagents entirely", () => {
+  assert.match(REVIEWER_POLICY, /^task:/m);
+  assert.match(REVIEWER_POLICY, /maxRecursionDepth:\s*0\b/, "the Reviewer spawns nothing");
+  assert.match(REVIEWER_POLICY, /maxConcurrency:\s*1\b/);
+  assert.match(REVIEWER_POLICY, /maxRuntimeMs:\s*300000\b/);
+});

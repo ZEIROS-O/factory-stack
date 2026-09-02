@@ -74,3 +74,25 @@ bash:
     # so that if bash is ever re-enabled the repository-integrity denials are
     # already in place rather than being remembered later.
     - { match: "*", approval: deny }
+
+# --------------------------------------------------------- execution bounds
+# MOVED HERE 2026-09-02 from omp/profiles/paperclip-reviewer/config.yml, which
+# OMP reads only under `--profile`; the factory dropped --profile because
+# profiles isolate auth by design and there is no separate factory credential
+# to isolate yet.
+#
+# maxRecursionDepth: 0 is the THIRD independent layer denying this agent paid
+# fan-out, alongside the --tools allowlist (which omits `task`) and
+# tools.approval.task: deny above. Left in the profile file it would have
+# reverted to OMP's default of 2 — silently handing the Reviewer the exact
+# capability the other two layers exist to withhold.
+task:
+  maxRecursionDepth: 0      # spawns nothing, ever
+  maxConcurrency: 1
+  maxRuntimeMs: 300000      # 5 min: a review reads and runs checks
+  softRequestBudget: 1
+
+memory:
+  backend: off
+autolearn:
+  enabled: false
