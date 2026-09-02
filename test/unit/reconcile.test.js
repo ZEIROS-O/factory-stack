@@ -476,3 +476,100 @@ test("a key already cleared to null is NOT drift, so removal is idempotent", () 
 
   assert.deepEqual(actions, [], "a cleared key is absent; proposing to clear it again is a loop");
 });
+
+// ── retiring a key that was never there ─────────────────────────────────────
+//
+// Retiring a managed key needs an explicit null, because Paperclip MERGES
+// adapterConfig on PATCH and an omitted key keeps its old value. But the body
+// builder sent null for EVERY undeclared managed key, including keys that were
+// already absent live — proposing to clear something that does not exist.
+//
+// The server validates each key it recognises when the key is PRESENT, and null
+// is not a valid value for all of them. On 2026-09-02 this failed a live apply:
+//
+//   PATCH /api/agents/6bae4cd3… -> HTTP 400
+//   {"code":"custom","message":"adapterConfig.env must be a map of valid env
+//    bindings","path":["adapterConfig","env"]}
+//
+// for a Hermes agent whose `env` was undefined in the config AND undefined on
+// the server. The drift detector already had this right — it treats an
+// undeclared key as drift only when the live record still holds a value — and
+// the body builder disagreed with it. The apply stopped fail-fast after two of
+// four actions, which is the receipt discipline working, but the plan could
+// never have succeeded.
+
+test("an undeclared key that is already absent live is not mentioned in the body", () => {
+  const cfg = {
+    agents: [{
+      name: "Hermes Generalist", adapterType: "hermes_local",
+      adapterConfig: { hermesCommand: "/repo/ops/hermes-bwrap.sh" },
+    }],
+  };
+  const snap = {
+    agents: {
+      "Hermes Generalist": {
+        id: "h1",
+        adapterConfig: { hermesCommand: "/other/ops/hermes-bwrap.sh" },
+      },
+    },
+  };
+  const actions = [];
+  planAgents(cfg, snap, actions);
+  assert.equal(actions.length, 1);
+  const body = actions[0].body.adapterConfig;
+  assert.equal(body.hermesCommand, "/repo/ops/hermes-bwrap.sh");
+  assert.ok(!("env" in body),
+    "env is undefined in both desired and live; proposing to clear it is what the server rejected");
+  assert.ok(!("promptTemplate" in body));
+  assert.ok(!("extraArgs" in body));
+});
+
+test("an undeclared key that IS live is still retired with an explicit null", () => {
+  // The behaviour the null exists for must survive the fix: an omitted key
+  // keeps its old value, so a real retirement has to say null.
+  const cfg = {
+    agents: [{
+      name: "Hermes Generalist", adapterType: "hermes_local",
+      adapterConfig: { hermesCommand: "/repo/ops/hermes-bwrap.sh" },
+    }],
+  };
+  const snap = {
+    agents: {
+      "Hermes Generalist": {
+        id: "h1",
+        adapterConfig: {
+          hermesCommand: "/repo/ops/hermes-bwrap.sh",
+          promptTemplate: "a template the config no longer declares",
+        },
+      },
+    },
+  };
+  const actions = [];
+  planAgents(cfg, snap, actions);
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0].body.adapterConfig.promptTemplate, null,
+    "a live key the config dropped must be cleared explicitly, not omitted");
+  assert.match(actions[0].what, /removing promptTemplate/);
+});
+
+test("a key already cleared to null is not re-proposed", () => {
+  // null is how this server reports a cleared key. Re-sending it would make
+  // `factory diff` never come back clean.
+  const cfg = {
+    agents: [{
+      name: "Hermes Generalist", adapterType: "hermes_local",
+      adapterConfig: { hermesCommand: "/repo/ops/hermes-bwrap.sh" },
+    }],
+  };
+  const snap = {
+    agents: {
+      "Hermes Generalist": {
+        id: "h1",
+        adapterConfig: { hermesCommand: "/repo/ops/hermes-bwrap.sh", promptTemplate: null },
+      },
+    },
+  };
+  const actions = [];
+  planAgents(cfg, snap, actions);
+  assert.equal(actions.length, 0, "nothing drifted, so nothing should be planned");
+});
