@@ -196,3 +196,20 @@ test("a malformed document throws — a corrupted account is not a missing one",
   const api = { getOptional: async () => ({ body: "{not json" }) };
   await assert.rejects(() => readReceiptDocument({ api, issueId: "i1" }), /not valid JSON/);
 });
+
+test("a rejected write reports the server's reason, not just the status code", async () => {
+  // "HTTP 403" is not actionable by the agent or by whoever reads the run log.
+  const { FactoryError } = require("../../lib/util");
+  const claims = buildClaims({ supplied: supplied(), objective, repository });
+  const api = {
+    getOptional: async () => null,
+    mutate: async () => {
+      const err = new FactoryError("PUT /api/issues/i1/documents/execution-receipt -> HTTP 403");
+      err.details = { status: 403, body: '{"error":"Agent cannot mutate another agent\'s issue"}' };
+      throw err;
+    },
+  };
+  await assert.rejects(
+    () => writeReceiptDocument({ api, issueId: "i1", runId: "run-1", claims }),
+    /HTTP 403 — .*Agent cannot mutate/);
+});
