@@ -1,0 +1,12 @@
+{
+  "id": "partial-workspace-strategy",
+  "title": "A partial issue workspaceStrategy REPLACES the project's rather than merging, silently",
+  "incident": {
+    "date": "2026-09-01",
+    "record": "factory.config.json $comment on executionWorkspaceSettings",
+    "mechanism": "execution-workspace-policy.js:275 combines the issue strategy with the project's using ?? , not a merge. A partial issue strategy therefore drops branchTemplate and worktreeParentDir and lands the run on a default branch inside the operator's own repository — untracked noise, and outside the isolation the design depends on."
+  },
+  "guard": { "module": "lib/config.js", "symbol": "validate" },
+  "trigger": "an issue git_worktree strategy missing any of baseRef, branchTemplate, worktreeParentDir",
+  "assertion": "config load refuses, naming the missing field and the ?? semantics"
+}

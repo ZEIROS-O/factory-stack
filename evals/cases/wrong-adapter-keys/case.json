@@ -1,0 +1,12 @@
+{
+  "id": "wrong-adapter-keys",
+  "title": "The boundary keys were judged against the wrong adapter and declared inert",
+  "incident": {
+    "date": "2026-08-31 / corrected 2026-09-01",
+    "record": "docs/BUILD_HISTORY.md; lib/preflight.js header",
+    "mechanism": "@paperclipai/adapter-pi-local serves `pi`; these agents run on @zhafron/paperclip-omp-adapter. Reading the wrong package produced the claim that the first-class keys are ignored and only extraArgs reaches the CLI. A gate built on that belief FAILED a correct config and would have PASSED a config that armed nothing — tools, policy overlay, extension, worktree hook — while looking configured."
+  },
+  "guard": { "module": "lib/preflight.js", "symbol": "adapterArgv" },
+  "trigger": "an adapterConfig using the first-class keys the OMP adapter really reads",
+  "assertion": "each key reaches argv as its own flag, in the adapter's order, with extraArgs appended last"
+}

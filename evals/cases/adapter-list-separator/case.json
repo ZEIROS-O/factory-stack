@@ -1,0 +1,13 @@
+{
+  "id": "adapter-list-separator",
+  "title": "Path-valued adapter keys split on NEWLINES; a comma is an ordinary filename character",
+  "incident": {
+    "date": "2026-09-02",
+    "issue": "ZEI-2",
+    "record": "lib/preflight.js#stringList header",
+    "mechanism": "the adapter's stringList(value, commaSeparated = false) splits on /\\r?\\n/ by default and only modelCycle, tools and skills pass true. A preflight that split everything on commas was MORE FORGIVING than the real launch: it reported 6/6 while the real dispatch died three times on 'Config overlay not found: /…/base.overlay.yml,/…/engineer.policy.yml'. A gate that models the launch more generously than the launch proves nothing."
+  },
+  "guard": { "module": "lib/preflight.js", "symbol": "stringList" },
+  "trigger": "a comma-joined string in a path-valued key versus a comma-joined string in tools",
+  "assertion": "the path key yields ONE path; tools yields two; and the argv built from it does not fabricate a second --config"
+}

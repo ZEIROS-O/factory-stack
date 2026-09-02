@@ -1,0 +1,13 @@
+{
+  "id": "no-disposition-redispatch",
+  "title": "A run that succeeds without leaving a disposition must never be auto-replayed",
+  "incident": {
+    "date": "2026-08-31 and 2026-09-01",
+    "issue": "ZEI-1",
+    "record": "docs/BUILD_HISTORY.md §5c",
+    "mechanism": "a run exits 0 with no disposition -> the server's successful-run handoff creates a corrective run -> the reasoning is paid for again. Both recorded cost incidents are this class. Paperclip bounds it at DEFAULT_MAX_SUCCESSFUL_RUN_HANDOFF_ATTEMPTS = 1; the factory must never widen it by classifying such a run as cheap to retry."
+  },
+  "guard": { "module": "lib/failure-class.js", "symbol": "classifyRun" },
+  "trigger": "a run with status succeeded, no livenessState and no nextAction",
+  "assertion": "classified reasoning, autoReplaySafe false; and an unknown failure code defaults to the same, never to transport"
+}

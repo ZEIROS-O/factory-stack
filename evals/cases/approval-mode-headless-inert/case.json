@@ -1,0 +1,17 @@
+{
+  "id": "approval-mode-headless-inert",
+  "title": "A headless OMP agent that asks for approval is inert, exits 0, and invites a redispatch loop",
+  "incident": {
+    "date": "2026-08-31",
+    "issue": "ZEI-1",
+    "costUsd": 5.57,
+    "runs": 6,
+    "repositoryWrites": 0,
+    "record": "docs/BUILD_HISTORY.md §5c",
+    "mechanism": "approvalMode: write on a headless agent -> every exec-tier tool fails 'requires approval but no interactive UI available' -> run exits 0 and is recorded succeeded -> issue left in_progress with no disposition -> successful-run handoff creates a corrective run -> repeat, bounded only by the budget cap"
+  },
+  "guard": { "module": "lib/config.js", "symbol": "validate" },
+  "guardAddedBy": "this case — the failure had no guard before 2026-09-02, only a prose note in omp/engineer.policy.yml and a config that happened to say yolo",
+  "trigger": "an omp_local agent declaring approvalMode other than yolo",
+  "assertion": "config load refuses, naming the agent and the incident"
+}

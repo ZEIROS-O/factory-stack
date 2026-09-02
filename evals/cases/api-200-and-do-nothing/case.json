@@ -1,0 +1,12 @@
+{
+  "id": "api-200-and-do-nothing",
+  "title": "Paperclip accepts a payload, drops fields, and answers 200 with the object unchanged",
+  "incident": {
+    "date": "2026-08-31",
+    "record": "lib/api.js header; docs/FACTORY_KNOWLEDGE.md",
+    "mechanism": "a confirmed CLASS, not a pair of one-offs: PATCH /api/agents/{id} with instructionsBundle is dropped; issue executionWorkspace* fields are deleted outright when enableIsolatedWorkspaces is off. Both return 200. Any client that believes a status code records desired state it never achieved."
+  },
+  "guard": { "module": "lib/api.js", "symbol": "PaperclipApi.mutate" },
+  "trigger": "a server that returns 200 and does not persist the written field",
+  "assertion": "mutate re-reads and throws; and the allowlist refuses an out-of-scope field before any write happens"
+}
