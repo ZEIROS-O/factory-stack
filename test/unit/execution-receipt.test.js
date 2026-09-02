@@ -7,7 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const {
   RECEIPT_BEGIN, RECEIPT_END, parseExecutionReceiptClaims, buildExecutionReceipt,
-  loadExecutionReceiptForReview,
+  loadExecutionReceiptForReview, knownRunCost,
 } = require("../../lib/execution-receipt");
 const { hashValue } = require("../../lib/util");
 
@@ -212,4 +212,68 @@ test("a genuinely different commit is still rejected", () => {
     }),
     /repository binding/i,
   );
+});
+
+// ── knownRunCost against the REAL run-ledger shape ──────────────────────────
+//
+// Every fixture above invents `usageJson.costStatus: "reported"`. Paperclip
+// never sets that field. It exists only in the receipts this module WRITES
+// (`usage: { costStatus: "known", ... }`), so the reader was checking the run
+// ledger against its own output schema, and the fixtures agreed with the reader
+// because both were written from the same wrong belief — the failure mode
+// apply.test.js already names: "a fake that emits X and a client that reads X
+// are wrong together".
+//
+// Measured 2026-09-02 against the live instance: knownRunCost threw on all 24
+// runs carrying usage, so `factory promote` could not promote anything.
+//
+// The invariant worth keeping is "promotion requires a KNOWN cost", not
+// "requires a field only we produce". A usable number is the evidence; a
+// costStatus that says otherwise still refuses.
+
+const REAL_USAGE = {
+  costUsd: 0.8923949999999999,
+  cost_usd: 0.8923949999999999,
+  billingType: "unknown",
+  inputTokens: 24577,
+  outputTokens: 2333,
+  total_cost_usd: 0.8923949999999999,
+  cachedInputTokens: 1399040,
+  cache_read_input_tokens: 1399040,
+};
+
+test("knownRunCost accepts Paperclip's real usageJson, which carries no costStatus", () => {
+  assert.equal(knownRunCost({ usageJson: REAL_USAGE }), 0.8923949999999999);
+});
+
+test("knownRunCost still accepts the shape the receipts themselves write", () => {
+  assert.equal(knownRunCost({ usageJson: { costStatus: "reported", costUsd: 1.25 } }), 1.25);
+});
+
+test("a zero-cost run has a known cost — free is a number, not an absence", () => {
+  assert.equal(knownRunCost({ usageJson: { costUsd: 0 } }), 0);
+});
+
+test("knownRunCost still refuses when the cost is genuinely absent", () => {
+  assert.throws(() => knownRunCost({ usageJson: { inputTokens: 10 } }), /known cost/i);
+  assert.throws(() => knownRunCost({ usageJson: {} }), /known cost/i);
+  assert.throws(() => knownRunCost({}), /known cost/i);
+});
+
+test("knownRunCost refuses a cost the ledger itself marks unusable", () => {
+  // If Paperclip ever does set costStatus, a value that means "not priced" must
+  // still refuse — the number alone is not permission when the ledger disputes it.
+  for (const costStatus of ["unpriced", "unknown", "estimated", "pending"]) {
+    assert.throws(
+      () => knownRunCost({ usageJson: { costStatus, costUsd: 1.25 } }),
+      /known cost/i,
+      `expected costStatus "${costStatus}" to refuse`);
+  }
+});
+
+test("knownRunCost refuses a nonsense number rather than promoting on it", () => {
+  for (const costUsd of [-1, NaN, Infinity, "1.25", null]) {
+    assert.throws(() => knownRunCost({ usageJson: { costUsd } }), /known cost/i,
+      `expected ${JSON.stringify(costUsd)} to refuse`);
+  }
 });
