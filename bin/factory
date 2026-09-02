@@ -12,6 +12,7 @@
 //   factory preflight <issue>               every gate that must hold before dispatch
 //   factory handoff --draft <path>          validated Hermes -> Engineer child handoff
 //   factory promote <issue> --assessment <h>  commit the reviewed diff and approve
+//   factory retro <issue>                   read a finished issue back; ledger row
 //
 // `apply` requires --plan-hash on purpose. It makes "I reviewed this exact
 // change" mechanical rather than remembered: if live state or the config moved
@@ -278,7 +279,7 @@ async function main() {
   const name = args._[0];
   if (!name || name === "help" || args.flags.help) {
     console.log(require("node:fs").readFileSync(__filename, "utf8")
-      .split("\n").slice(2, 13).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
+      .split("\n").slice(2, 15).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
     return 0;
   }
   const cfg = load(process.env.FACTORY_CONFIG);
@@ -307,6 +308,10 @@ async function main() {
   if (name === "preflight") return require("../lib/preflight").run(cfg, args, { connect, requireHealthy, C });
   if (name === "handoff") return require("../lib/handoff").run(cfg, args, { connect, requireHealthy, C });
   if (name === "promote") return require("../lib/promote").run(cfg, args, { connect, requireHealthy, C });
+  // `retro` is a READER. It writes at most a LEDGER row and a candidate draft,
+  // and lib/retro.js#assertWritableTarget refuses anything else — the proposer
+  // must not be able to edit the bar that judges it.
+  if (name === "retro") return require("../lib/retro").run(cfg, args, { connect, requireHealthy, C });
 
   const fn = COMMANDS[name];
   if (!fn) { console.error(C.red(`unknown command: ${name}`)); return 2; }
