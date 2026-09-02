@@ -69,8 +69,10 @@ test("omp-bwrap.sh derives the profile from the adapter environment and validate
   // ".." must never reach a path; the task names it explicitly.
   assert.match(OMP, /\*\.\.\*/, "rejects any profile containing '..'");
   assert.match(OMP, /\*\.\)/, "rejects profile names ending in '.' (adapter parity)");
-  assert.match(OMP, /PROFILE_DIR="\$HOME\/\.omp\/profiles\/\$PROFILE\/agent"/,
-    "profile state root is the per-profile agent dir");
+  assert.match(OMP, /PROFILE_ROOT="\$HOME\/\.omp\/profiles\/\$PROFILE"/,
+    "the profile root is derived from the validated profile name");
+  assert.match(OMP, /PROFILE_DIR="\$PROFILE_ROOT\/agent"/,
+    "the agent state root is still the per-profile agent dir, now expressed under the root");
 });
 
 test("omp-bwrap.sh masks the operator's global CLAUDE.md with a real empty file", () => {
@@ -99,16 +101,16 @@ test("omp-bwrap.sh does NOT mask the approved skill directories", () => {
   }
 });
 
-test("omp-bwrap.sh binds the per-profile agent dir when a profile is set, and the global agent dir only when not", () => {
-  assert.match(OMP, /args\+=\( --bind "\$PROFILE_DIR" "\$PROFILE_DIR" \)/,
-    "binds the profile agent dir");
+test("omp-bwrap.sh binds the per-profile tree when a profile is set, and the global agent dir only when not", () => {
+  assert.match(OMP, /args\+=\( --bind "\$PROFILE_ROOT" "\$PROFILE_ROOT" \)/,
+    "binds the profile tree; see the EROFS canary finding for why the agent subdir alone is not enough");
   assert.match(OMP, /args\+=\( --bind "\$HOME\/\.omp\/agent" "\$HOME\/\.omp\/agent" \)/,
     "legacy global agent binding still exists");
   // logs/run/paperclip stay writable in both branches.
   assert.match(OMP, /"\$HOME\/\.omp\/logs" "\$HOME\/\.omp\/run" "\$HOME\/\.omp\/paperclip"/,
     "shared OMP dirs remain writable");
   // Binding is conditional on the profile existing.
-  assert.match(OMP, /if \[ -n "\$PROFILE_DIR" \]/, "profile binding is conditional");
+  assert.match(OMP, /if \[ -n "\$PROFILE_ROOT" \]/, "profile binding is conditional");
 });
 
 test("hermes-bwrap.sh pins HERMES_HOME to the Paperclip profile", () => {
@@ -168,4 +170,32 @@ test("hermes-bwrap.sh forwards all arguments unchanged", () => {
   assert.match(HERMES, /exec bwrap "\$\{args\[@\]\}" -- "\$REAL_HERMES" "\$@"/,
     "execs the real hermes with the full original argv");
   assert.match(HERMES, /FACTORY_REAL_HERMES/, "hermes binary is overridable for tests");
+});
+// ── the profile ROOT is the writable unit, not the agent subdirectory ────────
+//
+// Found by the first live canary. With OMP_PROFILE set, OMP relocates its
+// runtime directories under ~/.omp/profiles/<profile>/ — `run/` alongside
+// `agent/`, not inside it. The sandbox bound only <profile>/agent, so the very
+// first thing OMP did inside the sandbox was
+//
+//   EROFS: read-only file system, mkdir '/home/lucascoh/.omp/profiles/paperclip-engineer/run'
+//
+// The isolation property is unchanged by widening to the profile root: the
+// operator's global ~/.omp/agent still stays read-only under a profile. What
+// widens is only the profile's OWN tree, which is the thing the profile exists
+// to give this agent.
+
+test("omp-bwrap.sh binds the whole profile root writable, so OMP can create its runtime dirs", () => {
+  assert.match(OMP, /PROFILE_ROOT="\$HOME\/\.omp\/profiles\/\$PROFILE"/,
+    "the profile root is named as its own variable");
+  assert.match(OMP, /args\+=\( --bind "\$PROFILE_ROOT" "\$PROFILE_ROOT" \)/,
+    "the profile root is what gets bound writable; binding only <profile>/agent made `run/` read-only");
+});
+
+test("omp-bwrap.sh still keeps the operator's global agent dir read-only under a profile", () => {
+  // Widening to the profile root must not have widened anything else: the
+  // global agent binding stays inside the no-profile branch only.
+  const profileBranch = OMP.slice(OMP.indexOf('if [ -n "$PROFILE_ROOT" ]'), OMP.indexOf("# The adapter's per-agent session directory"));
+  assert.doesNotMatch(profileBranch.split("else")[0], /\$HOME\/\.omp\/agent/,
+    "the global agent dir must never be bound writable while a profile is active");
 });

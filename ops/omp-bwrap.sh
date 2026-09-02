@@ -62,6 +62,7 @@ CWD="${PAPERCLIP_WORKSPACE_CWD:-$PWD}"
 # OMP itself reads) or PAPERCLIP_OMP_PROFILE. A profile means a per-profile
 # state root below; no profile means the legacy global state root.
 PROFILE="${OMP_PROFILE:-${PAPERCLIP_OMP_PROFILE:-}}"
+PROFILE_ROOT=""
 PROFILE_DIR=""
 if [ -n "$PROFILE" ]; then
   # Fail closed on anything that could build a path out of the state tree:
@@ -73,7 +74,21 @@ if [ -n "$PROFILE" ]; then
   esac
   [[ "$PROFILE" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || {
     echo "FATAL: invalid OMP profile name '$PROFILE'" >&2; exit 65; }
-  PROFILE_DIR="$HOME/.omp/profiles/$PROFILE/agent"
+  # THE PROFILE ROOT IS THE WRITABLE UNIT, NOT <profile>/agent.
+  #
+  # CORRECTED 2026-09-02, found by the first live canary. With OMP_PROFILE set,
+  # OMP relocates its runtime directories under ~/.omp/profiles/<profile>/ —
+  # `run/` is a SIBLING of `agent/`, not a child. Binding only <profile>/agent
+  # left the rest read-only, and the first thing OMP did inside the sandbox was
+  #   EROFS: read-only file system, mkdir '~/.omp/profiles/<profile>/run'
+  #
+  # Widening to the root does not weaken the isolation this profile exists for:
+  # the operator's global ~/.omp/agent is still NOT bound writable while a
+  # profile is active, so the global model-role table and its caches remain
+  # read-only to every factory run. What became writable is only the profile's
+  # own tree.
+  PROFILE_ROOT="$HOME/.omp/profiles/$PROFILE"
+  PROFILE_DIR="$PROFILE_ROOT/agent"
   [ -d "$PROFILE_DIR" ] || {
     echo "FATAL: OMP profile state $PROFILE_DIR does not exist." >&2
     echo "       Run 'factory materialize --apply' to create it." >&2
@@ -134,8 +149,8 @@ fi
 for d in "$HOME/.omp/logs" "$HOME/.omp/run" "$HOME/.omp/paperclip"; do
   [ -d "$d" ] && args+=( --bind "$d" "$d" )
 done
-if [ -n "$PROFILE_DIR" ]; then
-  args+=( --bind "$PROFILE_DIR" "$PROFILE_DIR" )
+if [ -n "$PROFILE_ROOT" ]; then
+  args+=( --bind "$PROFILE_ROOT" "$PROFILE_ROOT" )
 else
   [ -d "$HOME/.omp/agent" ] && args+=( --bind "$HOME/.omp/agent" "$HOME/.omp/agent" )
 fi
