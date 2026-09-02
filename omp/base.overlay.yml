@@ -73,9 +73,15 @@ retry:
   usageReservePct: 10
   usageReservePolicy: fail-closed # pilot posture: quota exhaustion is a visible event
   fallbackChains:
-    # Subscription lanes fall to the cheapest frontier model.
-    "anthropic/*": [openrouter/z-ai/glm-5.3, openrouter/z-ai/glm-5.3-flash]
-    "openai-codex/*": [openrouter/z-ai/glm-5.3, openrouter/z-ai/glm-5.3-flash]
+    # Subscription lanes carry the Engineer and the Reviewer, so the failover
+    # preserves capability before it preserves price: deepseek-v4-pro ($0.48) is
+    # cross-lab from z-ai and cheap enough that a re-dispatched run costs more
+    # than the difference, with glm-5.3-flash ($0.19) as the floor behind it.
+    # glm-5.3 ($1.73) is the deliberate `code-hard` model and must never be the
+    # silent default failover — that routed every quota-pressured run to the
+    # most expensive metered lane in the table.
+    "anthropic/*": [openrouter/deepseek/deepseek-v4-pro-0813, openrouter/z-ai/glm-5.3-flash]
+    "openai-codex/*": [openrouter/deepseek/deepseek-v4-pro-0813, openrouter/z-ai/glm-5.3-flash]
     # Gemini is the cheap/multimodal lane; it falls sideways, not up.
     "google-antigravity/*": [openrouter/z-ai/glm-5.3-flash, openrouter/deepseek/deepseek-v4-flash-0731]
     # Cross-lab on purpose: a z-ai outage is not fixed by another z-ai model.
