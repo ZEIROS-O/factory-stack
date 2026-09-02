@@ -142,7 +142,7 @@
           "~/.paperclip/adapter-plugins. Oh My Pi (OMP) and `pi` are DIFFERENT",
           "products: @paperclipai/adapter-pi-local in node_modules serves pi and",
           "does not run these agents. Reading it to judge these keys is reading",
-          "the wrong file — that mistake is what produced the claim that the keys",
+          "the wrong file \u2014 that mistake is what produced the claim that the keys",
           "below are inert.",
           "",
           "The adapter builds OMP argv from these keys in dist/server/execute.js:",
@@ -252,12 +252,12 @@
       },
       "adapterConfig": {
         "$comment": [
-          "READ THE ENGINEER'S COMMENT FIRST — the same first-class keys govern.",
+          "READ THE ENGINEER'S COMMENT FIRST \u2014 the same first-class keys govern.",
           "",
           "THE READ-ONLY BOUNDARY LIVES IN `tools`. The adapter emits --tools only",
           "when this key is non-empty (execute.js:132,153) and hardcodes nothing.",
           "Leave it unset and OMP falls back to its own default tool set, which",
-          "includes write access — the plan forbids that: the Reviewer's verdict",
+          "includes write access \u2014 the plan forbids that: the Reviewer's verdict",
           "has to be an observation, not an intervention.",
           "",
           "`ast-grep` is NOT a valid OMP tool name and is in the live list; it",
@@ -353,7 +353,7 @@
       "role": "generalist",
       "adapterType": "hermes_local",
       "instructions": {
-        "$comment": "Binds this agent to the compiled instructions/out/AGENTS.hermes.md whose sha256 is pinned by the committed instructions/manifest.sha256. The Hermes adapter reads adapterConfig.instructionsFilePath — which Paperclip materializes and the factory never manages — and prepends those bytes to the run prompt (hermes-paperclip-adapter execute.js:311-336).",
+        "$comment": "Binds this agent to the compiled instructions/out/AGENTS.hermes.md whose sha256 is pinned by the committed instructions/manifest.sha256. The Hermes adapter reads adapterConfig.instructionsFilePath \u2014 which Paperclip materializes and the factory never manages \u2014 and prepends those bytes to the run prompt (hermes-paperclip-adapter execute.js:311-336).",
         "path": "AGENTS.md",
         "bundle": "hermes"
       },
@@ -375,7 +375,7 @@
           "        [--max-turns N] [-w] [--checkpoints] [-v] --source tool --yolo",
           "        [--resume <id>] ...extraArgs",
           "`--yolo` and `--source tool` are unconditional (:365,:371), so approval",
-          "prompting is not an available boundary here — Hermes runs with no TTY.",
+          "prompting is not an available boundary here \u2014 Hermes runs with no TTY.",
           "Containment is the wrapper below, not a prompt.",
           "",
           "hermesCommand is ops/hermes-bwrap.sh, not `hermes`. The wrapper is what",
@@ -407,7 +407,7 @@
           "load paperclip-engineer-handoff, todo and clarify because clarification",
           "IS this role's work, and delegation bounded to depth 1 by the profile.",
           "Deliberately absent: memory (this agent keeps none), cronjob and the",
-          "MCP servers (Paperclip is the only control plane — mirroring company",
+          "MCP servers (Paperclip is the only control plane \u2014 mirroring company",
           "task state into cron or Kanban would create a second one), plus",
           "browser, code_execution, vision, and x_search as unearned surface.",
           "",
@@ -459,7 +459,7 @@
           "with `??`, NOT a merge. A partial issue strategy therefore REPLACES the",
           "project's and silently drops branchTemplate and worktreeParentDir, landing",
           "the run on branch `ZEI-1-<slug>` inside `/home/lucascoh/X-Bookmarks/.paperclip/worktrees`",
-          "— untracked noise in the operator's own repo. Never write a partial strategy here."
+          "\u2014 untracked noise in the operator's own repo. Never write a partial strategy here."
         ],
         "mode": "isolated_workspace",
         "workspaceStrategy": {
@@ -469,11 +469,11 @@
           "worktreeParentDir": "/home/lucascoh/.paperclip/worktrees/X-Bookmarks"
         }
       },
-      "$comment_responsibleUser": "THE ESCALATION TARGET. On round exhaustion the server hands the stage to reviewEscalationUserId(issue) = responsibleUserId ?? createdByUserId ?? null (issue-execution-policy.js:345). When that resolves to NULL the escalation branch at :681 is skipped entirely and control falls through to `patch.status = in_progress` reassigned to the return assignee — the Engineer. That is the blocked-and-loop state the plan forbids, reached by omission rather than by error. Resolved by operator key, never by UUID.",
+      "$comment_responsibleUser": "THE ESCALATION TARGET. On round exhaustion the server hands the stage to reviewEscalationUserId(issue) = responsibleUserId ?? createdByUserId ?? null (issue-execution-policy.js:345). When that resolves to NULL the escalation branch at :681 is skipped entirely and control falls through to `patch.status = in_progress` reassigned to the return assignee \u2014 the Engineer. That is the blocked-and-loop state the plan forbids, reached by omission rather than by error. Resolved by operator key, never by UUID.",
       "responsibleUser": "operator",
       "executionPolicy": {
         "$comment_maxReviewRounds": "DECLARED HERE BECAUSE THIS IS WHERE THE SERVER LOOKS. resolveMaxReviewRounds(policy) reads policy.maxReviewRounds (issue-execution-policy.js:336) and falls back to DEFAULT_MAX_REVIEW_ROUNDS = 3 (:9). The copy under issues[].limits is the factory's own promote-time gate; it is never sent to the server, so declaring the ceiling only there would leave the live instance running 3 rounds while the config appeared to say 2.",
-        "$comment_commentRequired": "DECLARED BECAUSE THE SERVER DEFAULTS IT. issueExecutionPolicySchema has commentRequired: z.boolean().optional().default(true), so a policy that omits it comes back from readback carrying it, and the reconciler reports drift that no config edit can clear. Declaring the value we actually want — every review and approval decision must carry a body — makes desired state complete instead of teaching the comparator to ignore a real policy knob.",
+        "$comment_commentRequired": "DECLARED BECAUSE THE SERVER DEFAULTS IT. issueExecutionPolicySchema has commentRequired: z.boolean().optional().default(true), so a policy that omits it comes back from readback carrying it, and the reconciler reports drift that no config edit can clear. Declaring the value we actually want \u2014 every review and approval decision must carry a body \u2014 makes desired state complete instead of teaching the comparator to ignore a real policy knob.",
         "commentRequired": true,
         "maxReviewRounds": 2,
         "mode": "normal",
@@ -502,13 +502,30 @@
       },
       "limits": {
         "$comment": [
-          "45 minutes is HARD: it reaches the run as adapterConfig.timeoutSec/maxTime.",
-          "$4 is a GATE, not a hard stop: Paperclip budget scopes are company/agent/project",
-          "only (POST /api/companies/{id}/budgets/policies — no issue scope), so no",
-          "per-issue ceiling exists to set. The factory enforces it by refusing to",
-          "promote a run whose reported cost exceeded it. The hard stops behind it are",
-          "the Engineer's $40 agent budget and the provider-side OpenRouter cap.",
-          "The $5 factory-wide figure is an outer bound and never relaxes this."
+          "COST CEILINGS ARE RECORDED, NOT ENFORCED \u2014 and that is deliberate.",
+          "",
+          "An earlier version of this comment said the factory 'enforces it by",
+          "refusing to promote a run whose reported cost exceeded it'. That was",
+          "FALSE, and it was corrected in the code long before it was corrected",
+          "here (lib/execution-receipt.js:284). A promote-time cost refusal cannot",
+          "prevent a single dollar \u2014 the money is spent by the time promotion runs.",
+          "All it can do is ensure you paid and got nothing back, which is strictly",
+          "worse than either preventing the spend or accepting the result.",
+          "",
+          "THE CONTROLS THAT ACTUALLY PREVENT OVERSPEND act while a run is alive:",
+          "  - adapterConfig.timeoutSec / maxTime, and assigneeAdapterOverrides",
+          "  - task.maxRuntimeMs / maxConcurrency / softRequestBudget in the policy",
+          "    overlays, which bound subagent fan-out",
+          "  - retry.usageReservePct with usageReservePolicy: fail-closed in",
+          "    base.overlay.yml \u2014 this one demonstrably works: it halted a live run",
+          "    mid-flight on 2026-09-02 rather than spending into the reserve",
+          "  - the per-agent Paperclip budget and the provider-side cap",
+          "",
+          "wallClockMinutes is HARD: it reaches the run as adapterConfig timeoutSec.",
+          "The cost numbers below are a RECORDED bound: they land in the execution",
+          "receipt so an expensive run is visible to the operator who approves it.",
+          "Paperclip budget scopes are company/agent/project only \u2014 there is no",
+          "per-issue budget endpoint \u2014 so no per-issue hard stop exists to set."
         ],
         "wallClockMinutes": 45,
         "costCeilingUsd": 4,
@@ -523,11 +540,11 @@
     },
     {
       "$comment": [
-        "CANARY #1 — the direct Engineer -> Reviewer -> approval -> promotion lane.",
+        "CANARY #1 \u2014 the direct Engineer -> Reviewer -> approval -> promotion lane.",
         "",
         "Limits are deliberately tighter than ZEI-1: this is a one-character fix, so",
         "15 minutes and $1 are generous. The write grant is a SINGLE file, and the",
-        "test that proves the work is NOT in it — so the lazy fix (edit the test to",
+        "test that proves the work is NOT in it \u2014 so the lazy fix (edit the test to",
         "agree with the defect) is refused by promote.js assertAllowedPaths rather",
         "than merely discouraged in prose.",
         "",
@@ -550,7 +567,7 @@
       },
       "executionWorkspacePreference": "isolated_workspace",
       "executionWorkspaceSettings": {
-        "$comment": "Full strategy, atomically — a partial issue strategy REPLACES the project policy rather than merging with it, silently dropping branchTemplate and worktreeParentDir.",
+        "$comment": "Full strategy, atomically \u2014 a partial issue strategy REPLACES the project policy rather than merging with it, silently dropping branchTemplate and worktreeParentDir.",
         "mode": "isolated_workspace",
         "workspaceStrategy": {
           "type": "git_worktree",
@@ -589,8 +606,35 @@
       },
       "limits": {
         "wallClockMinutes": 15,
-        "costCeilingUsd": 1,
-        "maxReviewRounds": 2
+        "costCeilingUsd": 3,
+        "maxReviewRounds": 2,
+        "$comment": [
+          "COST CEILINGS ARE RECORDED, NOT ENFORCED \u2014 and that is deliberate.",
+          "",
+          "An earlier version of this comment said the factory 'enforces it by",
+          "refusing to promote a run whose reported cost exceeded it'. That was",
+          "FALSE, and it was corrected in the code long before it was corrected",
+          "here (lib/execution-receipt.js:284). A promote-time cost refusal cannot",
+          "prevent a single dollar \u2014 the money is spent by the time promotion runs.",
+          "All it can do is ensure you paid and got nothing back, which is strictly",
+          "worse than either preventing the spend or accepting the result.",
+          "",
+          "THE CONTROLS THAT ACTUALLY PREVENT OVERSPEND act while a run is alive:",
+          "  - adapterConfig.timeoutSec / maxTime, and assigneeAdapterOverrides",
+          "  - task.maxRuntimeMs / maxConcurrency / softRequestBudget in the policy",
+          "    overlays, which bound subagent fan-out",
+          "  - retry.usageReservePct with usageReservePolicy: fail-closed in",
+          "    base.overlay.yml \u2014 this one demonstrably works: it halted a live run",
+          "    mid-flight on 2026-09-02 rather than spending into the reserve",
+          "  - the per-agent Paperclip budget and the provider-side cap",
+          "",
+          "wallClockMinutes is HARD: it reaches the run as adapterConfig timeoutSec.",
+          "The cost numbers below are a RECORDED bound: they land in the execution",
+          "receipt so an expensive run is visible to the operator who approves it.",
+          "Paperclip budget scopes are company/agent/project only \u2014 there is no",
+          "per-issue budget endpoint \u2014 so no per-issue hard stop exists to set."
+        ],
+        "outerFactoryCostCeilingUsd": 5
       },
       "assigneeAdapterOverrides": {
         "adapterConfig": {
