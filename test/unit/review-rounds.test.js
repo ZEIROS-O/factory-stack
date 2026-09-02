@@ -60,21 +60,36 @@ test("the issue names a responsible human, without whom exhaustion silently loop
 // The invariant is unchanged — the escalation target must not drift away
 // unnoticed — but it can only be enforced by refusing to plan, since no write
 // exists that could carry it.
+/**
+ * A live snapshot mirroring EVERY declared issue, derived from the config
+ * rather than hardcoded.
+ *
+ * This used to stub only ZEI-1, so adding a second issue to
+ * factory.config.json crashed planIssues on the unstubbed project — a test
+ * fixture failing for a reason that had nothing to do with what it asserts.
+ * `responsibleUserId` is applied to the FIRST declared issue only, because
+ * that is the one every assertion here is about; the rest carry the correct
+ * operator id so they never mask the failure under test.
+ */
 function snapWithResponsible(cfg, responsibleUserId) {
+  const issues = {};
+  const issueDocuments = {};
+  cfg.issues.forEach((declared, index) => {
+    issues[declared.identifier] = {
+      id: `issue-${index + 1}`, projectId: "p1", goalId: "g1",
+      reviewPolicy: "not_creator", assigneeAgentId: "a1",
+      responsibleUserId: index === 0 ? responsibleUserId : "user-operator",
+      executionWorkspacePreference: "isolated_workspace",
+      executionWorkspaceSettings: declared.executionWorkspaceSettings,
+      executionPolicy: null,
+      assigneeAdapterOverrides: declared.assigneeAdapterOverrides,
+    };
+    issueDocuments[declared.identifier] = {};
+  });
+  const projects = {};
+  for (const project of cfg.projects) projects[project.name] = { live: { id: "p1" } };
   return {
-    issues: {
-      "ZEI-1": {
-        id: "issue-1", projectId: "p1", goalId: "g1",
-        reviewPolicy: "not_creator", assigneeAgentId: "a1",
-        responsibleUserId,
-        executionWorkspacePreference: "isolated_workspace",
-        executionWorkspaceSettings: cfg.issues[0].executionWorkspaceSettings,
-        executionPolicy: null,
-        assigneeAdapterOverrides: cfg.issues[0].assigneeAdapterOverrides,
-      },
-    },
-    issueDocuments: { "ZEI-1": {} },
-    projects: { "X-Bookmarks": { live: { id: "p1" } } },
+    issues, issueDocuments, projects,
     goals: { autonomy: { id: "g1" } },
     agents: { "OMP Engineer": { id: "a1" }, "OMP Reviewer": { id: "a2" } },
     operator: { userId: "user-operator" },

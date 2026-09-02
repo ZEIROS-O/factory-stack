@@ -13,9 +13,9 @@
     "config is correct from the primary tree and from a worktree."
   ],
   "version": 1,
-
-  "api": { "url": "http://127.0.0.1:3100" },
-
+  "api": {
+    "url": "http://127.0.0.1:3100"
+  },
   "pins": {
     "$comment": [
       "Asserted, not installed. `factory status` fails if any drifts.",
@@ -34,7 +34,6 @@
     "omp": "18.1.2",
     "hermes": "0.20.6"
   },
-
   "instance": {
     "experimental": {
       "$comment": [
@@ -53,20 +52,21 @@
       "enableWorktreeRunExecution": false
     }
   },
-
-  "company": { "name": "ZEIROS" },
-
+  "company": {
+    "name": "ZEIROS"
+  },
   "goals": [
     {
       "key": "autonomy",
       "titlePrefix": "Build the mind, capabilities, systems, assets, and leverage required"
     }
   ],
-
   "projects": [
     {
       "name": "X-Bookmarks",
-      "goals": ["autonomy"],
+      "goals": [
+        "autonomy"
+      ],
       "repoPath": "/home/lucascoh/X-Bookmarks",
       "description": "X-Bookmarks. Agent work runs in git worktrees under /home/lucascoh/.paperclip/worktrees. The primary tree belongs to the operator.",
       "executionWorkspacePolicy": {
@@ -88,9 +88,41 @@
           "isPrimary": true
         }
       ]
+    },
+    {
+      "$comment": [
+        "DISPOSABLE. This project exists only to give the factory live canaries a",
+        "real repository that contains nothing of value. It is not X-Bookmarks and",
+        "it is not factory-stack: a run that escapes its bounds damages a fixture.",
+        "Delete the project and /home/lucascoh/canary once both canaries have run."
+      ],
+      "name": "Canary",
+      "goals": [
+        "autonomy"
+      ],
+      "repoPath": "/home/lucascoh/canary/add-fixture",
+      "description": "Disposable canary fixture. Two independent one-line defects, each with its own scoped test and its own single-file write grant.",
+      "executionWorkspacePolicy": {
+        "enabled": true,
+        "defaultMode": "isolated_workspace",
+        "allowIssueOverride": true,
+        "workspaceStrategy": {
+          "type": "git_worktree",
+          "branchTemplate": "paperclip/{{issue.identifier}}",
+          "worktreeParentDir": "/home/lucascoh/.paperclip/worktrees/canary"
+        }
+      },
+      "workspaces": [
+        {
+          "name": "primary",
+          "sourceType": "local_path",
+          "cwd": "/home/lucascoh/canary/add-fixture",
+          "defaultRef": "main",
+          "isPrimary": true
+        }
+      ]
     }
   ],
-
   "agents": [
     {
       "name": "OMP Engineer",
@@ -98,7 +130,8 @@
       "adapterType": "omp_local",
       "instructions": {
         "$comment": "Binds this agent to the compiled instructions/out/AGENTS.engineer.md whose sha256 is pinned by the committed instructions/manifest.sha256. Load verifies the bytes against the manifest; factory apply reconciles the live server copy with exact readback.",
-        "path": "AGENTS.md", "bundle": "engineer"
+        "path": "AGENTS.md",
+        "bundle": "engineer"
       },
       "adapterConfig": {
         "$comment": [
@@ -191,14 +224,14 @@
         "graceSec": 5
       }
     },
-
     {
       "name": "OMP Reviewer",
       "role": "reviewer",
       "adapterType": "omp_local",
       "instructions": {
         "$comment": "Binds this agent to the compiled instructions/out/AGENTS.reviewer.md whose sha256 is pinned by the committed instructions/manifest.sha256. Load verifies the bytes against the manifest; factory apply reconciles the live server copy with exact readback.",
-        "path": "AGENTS.md", "bundle": "reviewer"
+        "path": "AGENTS.md",
+        "bundle": "reviewer"
       },
       "adapterConfig": {
         "$comment": [
@@ -265,14 +298,14 @@
         "graceSec": 5
       }
     },
-
     {
       "name": "Hermes Generalist",
       "role": "generalist",
       "adapterType": "hermes_local",
       "instructions": {
         "$comment": "Binds this agent to the compiled instructions/out/AGENTS.hermes.md whose sha256 is pinned by the committed instructions/manifest.sha256. The Hermes adapter reads adapterConfig.instructionsFilePath — which Paperclip materializes and the factory never manages — and prepends those bytes to the run prompt (hermes-paperclip-adapter execute.js:311-336).",
-        "path": "AGENTS.md", "bundle": "hermes"
+        "path": "AGENTS.md",
+        "bundle": "hermes"
       },
       "adapterConfig": {
         "$comment": [
@@ -353,7 +386,6 @@
       }
     }
   ],
-
   "issues": [
     {
       "identifier": "ZEI-1",
@@ -361,7 +393,6 @@
       "goal": "autonomy",
       "reviewPolicy": "not_creator",
       "assignee": "OMP Engineer",
-
       "$comment_objectiveDocument": "The immutable objective is the versioned ObjectiveEnvelopeV1 at contracts/objectives/ZEI-1.json. Load verifies its schema, hashes, and issue binding, and renders the document body that factory apply upserts as issue document 'spec' with optimistic concurrency (baseRevisionId) and exact readback. The document is authoritative; the objective changes only by a new revision with new hashes.",
       "objectiveDocument": {
         "key": "spec",
@@ -370,7 +401,6 @@
         "sourceFile": "${FACTORY_ROOT}/contracts/objectives/ZEI-1.json",
         "changeSummary": "Install objective revision 1 (hash-bound)"
       },
-
       "executionWorkspacePreference": "isolated_workspace",
       "executionWorkspaceSettings": {
         "$comment": [
@@ -389,10 +419,8 @@
           "worktreeParentDir": "/home/lucascoh/.paperclip/worktrees/X-Bookmarks"
         }
       },
-
       "$comment_responsibleUser": "THE ESCALATION TARGET. On round exhaustion the server hands the stage to reviewEscalationUserId(issue) = responsibleUserId ?? createdByUserId ?? null (issue-execution-policy.js:345). When that resolves to NULL the escalation branch at :681 is skipped entirely and control falls through to `patch.status = in_progress` reassigned to the return assignee — the Engineer. That is the blocked-and-loop state the plan forbids, reached by omission rather than by error. Resolved by operator key, never by UUID.",
       "responsibleUser": "operator",
-
       "executionPolicy": {
         "$comment_maxReviewRounds": "DECLARED HERE BECAUSE THIS IS WHERE THE SERVER LOOKS. resolveMaxReviewRounds(policy) reads policy.maxReviewRounds (issue-execution-policy.js:336) and falls back to DEFAULT_MAX_REVIEW_ROUNDS = 3 (:9). The copy under issues[].limits is the factory's own promote-time gate; it is never sent to the server, so declaring the ceiling only there would leave the live instance running 3 rounds while the config appeared to say 2.",
         "$comment_commentRequired": "DECLARED BECAUSE THE SERVER DEFAULTS IT. issueExecutionPolicySchema has commentRequired: z.boolean().optional().default(true), so a policy that omits it comes back from readback carrying it, and the reconciler reports drift that no config edit can clear. Declaring the value we actually want — every review and approval decision must carry a body — makes desired state complete instead of teaching the comparator to ignore a real policy knob.",
@@ -400,11 +428,28 @@
         "maxReviewRounds": 2,
         "mode": "normal",
         "stages": [
-          { "type": "review",   "approvalsNeeded": 1, "participants": [{ "type": "agent", "agent": "OMP Reviewer" }] },
-          { "type": "approval", "approvalsNeeded": 1, "participants": [{ "type": "user",  "user": "operator" }] }
+          {
+            "type": "review",
+            "approvalsNeeded": 1,
+            "participants": [
+              {
+                "type": "agent",
+                "agent": "OMP Reviewer"
+              }
+            ]
+          },
+          {
+            "type": "approval",
+            "approvalsNeeded": 1,
+            "participants": [
+              {
+                "type": "user",
+                "user": "operator"
+              }
+            ]
+          }
         ]
       },
-
       "limits": {
         "$comment": [
           "45 minutes is HARD: it reaches the run as adapterConfig.timeoutSec/maxTime.",
@@ -416,16 +461,95 @@
           "The $5 factory-wide figure is an outer bound and never relaxes this."
         ],
         "wallClockMinutes": 45,
-        "costCeilingUsd": 4.0,
+        "costCeilingUsd": 4,
         "maxReviewRounds": 2
       },
-
       "assigneeAdapterOverrides": {
-        "adapterConfig": { "timeoutSec": 2700, "maxTime": "45m" }
+        "adapterConfig": {
+          "timeoutSec": 2700,
+          "maxTime": "45m"
+        }
+      }
+    },
+    {
+      "$comment": [
+        "CANARY #1 — the direct Engineer -> Reviewer -> approval -> promotion lane.",
+        "",
+        "Limits are deliberately tighter than ZEI-1: this is a one-character fix, so",
+        "15 minutes and $1 are generous. The write grant is a SINGLE file, and the",
+        "test that proves the work is NOT in it — so the lazy fix (edit the test to",
+        "agree with the defect) is refused by promote.js assertAllowedPaths rather",
+        "than merely discouraged in prose.",
+        "",
+        "The issue itself must already exist in Paperclip: lib/resolve.js#issue",
+        "throws when an identifier does not resolve, and responsibleUserId is",
+        "create-only on the server, so `factory apply` reconciles issues but never",
+        "creates them."
+      ],
+      "identifier": "ZEI-2",
+      "project": "Canary",
+      "goal": "autonomy",
+      "reviewPolicy": "not_creator",
+      "assignee": "OMP Engineer",
+      "objectiveDocument": {
+        "key": "spec",
+        "title": "ZEI-2 immutable objective (ObjectiveEnvelopeV1)",
+        "format": "markdown",
+        "sourceFile": "${FACTORY_ROOT}/contracts/objectives/ZEI-2.json",
+        "changeSummary": "Install objective revision 1 (hash-bound)"
+      },
+      "executionWorkspacePreference": "isolated_workspace",
+      "executionWorkspaceSettings": {
+        "$comment": "Full strategy, atomically — a partial issue strategy REPLACES the project policy rather than merging with it, silently dropping branchTemplate and worktreeParentDir.",
+        "mode": "isolated_workspace",
+        "workspaceStrategy": {
+          "type": "git_worktree",
+          "baseRef": "main",
+          "branchTemplate": "paperclip/{{issue.identifier}}",
+          "worktreeParentDir": "/home/lucascoh/.paperclip/worktrees/canary"
+        }
+      },
+      "responsibleUser": "operator",
+      "executionPolicy": {
+        "commentRequired": true,
+        "maxReviewRounds": 2,
+        "mode": "normal",
+        "stages": [
+          {
+            "type": "review",
+            "approvalsNeeded": 1,
+            "participants": [
+              {
+                "type": "agent",
+                "agent": "OMP Reviewer"
+              }
+            ]
+          },
+          {
+            "type": "approval",
+            "approvalsNeeded": 1,
+            "participants": [
+              {
+                "type": "user",
+                "user": "operator"
+              }
+            ]
+          }
+        ]
+      },
+      "limits": {
+        "wallClockMinutes": 15,
+        "costCeilingUsd": 1,
+        "maxReviewRounds": 2
+      },
+      "assigneeAdapterOverrides": {
+        "adapterConfig": {
+          "timeoutSec": 900,
+          "maxTime": "15m"
+        }
       }
     }
   ],
-
   "operator": {
     "$comment": "The human who owns the approval stage and every escalation.",
     "key": "operator",

@@ -366,3 +366,99 @@ test("run() skips the Hermes gate while no generalist is declared, and runs it o
   assert.equal(rcHermesFails, 1,
     "once declared, the generalist gate runs and an unrunnable hermes fails the summary");
 });
+
+// ── run(): an UNDECLARED issue is the normal case for a handoff-created child ──
+//
+// preflight used to refuse any identifier absent from factory.config.json:
+//
+//     const issue = cfg.issues.find((i) => i.identifier === identifier);
+//     if (!issue) { ... return 2; }
+//
+// but every one of its gates is AGENT-level — the verifier, the two launch
+// probes, the reviewer denial, the Hermes probe, the health check. None reads
+// the issue. So the lookup refused to prove agent-level facts about a child
+// that Hermes created, for no reason connected to what it checks.
+//
+// The identifier still has to mean something, though. For an undeclared issue
+// the objective lives only in its spec document, so preflight resolves it —
+// which is the one genuinely issue-specific thing it can prove, and exactly
+// what fails when a handoff half-completed.
+
+test("run() serves an undeclared issue by resolving its objective from the live spec document", async () => {
+  const C = { red: (s) => s, green: (s) => s, dim: (s) => s };
+  const root = path.resolve(__dirname, "..", "..");
+  const { renderObjectiveDocument, objectiveHash, objectiveCriteriaHash } = require("../../lib/contracts");
+
+  const objective = {
+    schemaVersion: "ObjectiveEnvelopeV1",
+    objectiveId: "ZEI-9", issueIdentifier: "ZEI-9", revision: 1,
+    objectiveHash: "sha256:" + "0".repeat(64), criteriaHash: "sha256:" + "0".repeat(64),
+    title: "A child no config declares", originalRequest: "Fix the thing.",
+    repository: { path: "/tmp/repo", baseCommit: "1e274df", branch: "paperclip/ZEI-9" },
+    permissions: { filesystem: { read: ["."], write: ["src/a.js"] }, network: "provider_only", externalEffects: [] },
+    limits: { wallClockMinutes: 15, costCeilingUsd: 1, outerFactoryCostCeilingUsd: 2, maxReviewRounds: 2 },
+    verificationLevel: "important",
+    expectedOutputs: ["a.js works"], constraints: ["Consume the supplied workspace."],
+    acceptanceCriteria: [{ id: "ZEI-9-AC-01", requirement: "passes", command: { argv: ["node", "--test"], cwd: "." } }],
+  };
+  objective.criteriaHash = objectiveCriteriaHash(objective);
+  objective.objectiveHash = objectiveHash(objective);
+
+  const cfg = {
+    _file: "factory.config.json", _root: root,
+    company: { name: "Local Factory" },
+    issues: [],  // ZEI-9 is declared NOWHERE — the whole point
+    agents: [
+      { name: "OMP Reviewer", role: "reviewer", adapterType: "omp_local",
+        adapterConfig: { tools: "read,paperclip_review" } },
+      { name: "OMP Engineer", role: "engineer", adapterType: "omp_local",
+        adapterConfig: { configFiles: "/repo/omp/engineer.policy.yml" } },
+    ],
+  };
+  const exec = (cmd) => (cmd === "bash" ? { status: 0, stdout: "", stderr: "" } : reachedModel());
+  const api = {
+    get: async (p) => {
+      if (p === "/api/companies") return [{ id: "c1", name: "Local Factory" }];
+      if (p === "/api/companies/c1/issues") return [{ id: "child-uuid", identifier: "ZEI-9" }];
+      if (p === "/api/issues/child-uuid") return { id: "child-uuid", identifier: "ZEI-9" };
+      if (p === "/api/issues/child-uuid/documents/spec") return { body: renderObjectiveDocument(objective) };
+      throw new Error(`GET ${p}`);
+    },
+  };
+  const stubs = { connect: () => ({ ...api, baseUrl: "http://x" }), requireHealthy: async () => {}, C, exec };
+
+  const rc = await run(cfg, { _: ["preflight", "ZEI-9"] }, stubs);
+  assert.equal(rc, 0, "an undeclared child with a resolvable objective must pass preflight");
+});
+
+test("run() fails an undeclared issue whose spec document never installed", async () => {
+  // The half-completed handoff: the child exists, but its objective does not.
+  // Dispatching it would wake an Engineer with nothing to work against.
+  const C = { red: (s) => s, green: (s) => s, dim: (s) => s };
+  const root = path.resolve(__dirname, "..", "..");
+  const cfg = {
+    _file: "factory.config.json", _root: root,
+    company: { name: "Local Factory" },
+    issues: [],
+    agents: [
+      { name: "OMP Reviewer", role: "reviewer", adapterType: "omp_local",
+        adapterConfig: { tools: "read,paperclip_review" } },
+      { name: "OMP Engineer", role: "engineer", adapterType: "omp_local",
+        adapterConfig: { configFiles: "/repo/omp/engineer.policy.yml" } },
+    ],
+  };
+  const exec = (cmd) => (cmd === "bash" ? { status: 0, stdout: "", stderr: "" } : reachedModel());
+  const api = {
+    get: async (p) => {
+      if (p === "/api/companies") return [{ id: "c1", name: "Local Factory" }];
+      if (p === "/api/companies/c1/issues") return [{ id: "child-uuid", identifier: "ZEI-9" }];
+      if (p === "/api/issues/child-uuid") return { id: "child-uuid", identifier: "ZEI-9" };
+      if (p === "/api/issues/child-uuid/documents/spec") return null;  // never installed
+      throw new Error(`GET ${p}`);
+    },
+  };
+  const stubs = { connect: () => ({ ...api, baseUrl: "http://x" }), requireHealthy: async () => {}, C, exec };
+
+  const rc = await run(cfg, { _: ["preflight", "ZEI-9"] }, stubs);
+  assert.equal(rc, 1, "a child with no objective must not pass preflight");
+});

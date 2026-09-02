@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "ObjectiveEnvelopeV1",
+  "objectiveId": "ZEI-2",
+  "issueIdentifier": "ZEI-2",
+  "revision": 1,
+  "objectiveHash": "sha256:a79b49002bd016f94fe5712af9f7428644de669137169cf3abbf63bdb9f89a30",
+  "criteriaHash": "sha256:803c659e846d86c7a14ede86dfc08f77384d5e7fb33b0815bd4a2248223c5788",
+  "title": "Repair the add() defect in the disposable canary fixture",
+  "originalRequest": "src/add.js subtracts instead of adding, so test/add.test.js fails. Make the test pass by correcting src/add.js. Change nothing else.",
+  "repository": {
+    "path": "/home/lucascoh/canary/add-fixture",
+    "baseCommit": "1e274dfd437388ebbedc82ac470c4e831f21d9c2",
+    "branch": "paperclip/ZEI-2"
+  },
+  "permissions": {
+    "filesystem": {
+      "read": [
+        "."
+      ],
+      "write": [
+        "src/add.js"
+      ]
+    },
+    "network": "provider_only",
+    "externalEffects": []
+  },
+  "limits": {
+    "wallClockMinutes": 15,
+    "costCeilingUsd": 1,
+    "outerFactoryCostCeilingUsd": 2,
+    "maxReviewRounds": 2
+  },
+  "verificationLevel": "important",
+  "expectedOutputs": [
+    "src/add.js returns the sum of its two arguments"
+  ],
+  "constraints": [
+    "Consume the workspace and branch supplied by Paperclip; do not create, select, or switch a worktree or branch.",
+    "src/add.js is the ONLY writable path. test/add.test.js is deliberately not writable: making the test agree with the defect is not a fix.",
+    "Do not modify src/mul.js or test/mul.test.js; a separate objective owns that defect.",
+    "The Engineer sandbox cannot commit; head may equal base when the receipt carries exact changed-path hashes and diff hash."
+  ],
+  "acceptanceCriteria": [
+    {
+      "id": "ZEI-2-AC-01",
+      "requirement": "test/add.test.js passes, proving add() returns the sum.",
+      "command": {
+        "argv": [
+          "node",
+          "--test",
+          "test/add.test.js"
+        ],
+        "cwd": "."
+      }
+    }
+  ]
+}
