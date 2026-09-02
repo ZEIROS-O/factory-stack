@@ -198,3 +198,66 @@ test("hermesArgv emits an optional flag only under the adapter's own condition",
   assert.notEqual(t, -1, "the enabledToolsets array alias reaches -t too");
   assert.equal(argv[t + 1], "fs,web");
 });
+
+// ── THE SEPARATOR IS NOT THE SAME FOR EVERY KEY ──────────────────────────────
+//
+// Caught by the first live canary, which cost $0.00 and failed three times with
+//
+//   error: Config overlay not found: /…/base.overlay.yml,/…/engineer.policy.yml
+//
+// The adapter's own helper (dist/server/execute.js:31) is
+//
+//   stringList(value, commaSeparated = false)
+//     value.split(commaSeparated ? /[\r\n,]+/ : /\r?\n/)
+//
+// and it is called with `true` for ONLY three keys — modelCycle (:131),
+// tools (:132), skills (:133). Every path-valued key takes the default:
+// configFiles (:187), extensions (:189), pluginDirs (:191), hooks (:193).
+// For those, a comma is an ordinary filename character, so "a.yml,b.yml" is
+// ONE path that does not exist.
+//
+// preflight's adapterArgv split EVERYTHING on commas. That is why the launch
+// probe passed 6/6 while the real dispatch could not start: the probe was
+// proving a reconstruction that no adapter ever builds. A gate whose whole
+// purpose is to prove the real launch must not model it more forgivingly than
+// the thing it stands in for.
+
+const { adapterArgv: argvUnderTest } = require("../../lib/preflight");
+
+test("comma-joined configFiles stay ONE argument, exactly as the adapter treats them", () => {
+  const argv = argvUnderTest({ configFiles: "/a/base.yml,/a/policy.yml" });
+  const configs = argv.filter((x, i) => argv[i - 1] === "--config");
+
+  assert.deepEqual(configs, ["/a/base.yml,/a/policy.yml"],
+    "a comma is not a separator for configFiles; splitting on it hides the defect the canary hit");
+});
+
+test("newline-separated configFiles become separate --config flags", () => {
+  const argv = argvUnderTest({ configFiles: "/a/base.yml\n/a/policy.yml" });
+  const configs = argv.filter((x, i) => argv[i - 1] === "--config");
+
+  assert.deepEqual(configs, ["/a/base.yml", "/a/policy.yml"]);
+});
+
+test("an array of configFiles becomes separate --config flags", () => {
+  const argv = argvUnderTest({ configFiles: ["/a/base.yml", "/a/policy.yml"] });
+  const configs = argv.filter((x, i) => argv[i - 1] === "--config");
+
+  assert.deepEqual(configs, ["/a/base.yml", "/a/policy.yml"],
+    "an array is unambiguous and is the shape the factory should declare");
+});
+
+test("tools and skills DO split on commas, because the adapter asks them to", () => {
+  const argv = argvUnderTest({ tools: "read,paperclip_review", skills: "a,b" });
+
+  assert.deepEqual(argv, ["--tools", "read,paperclip_review", "--skills", "a,b"]);
+});
+
+test("extensions, pluginDirs and hooks follow the path rule, not the comma rule", () => {
+  for (const key of ["extensions", "pluginDirs", "hooks"]) {
+    const flag = { extensions: "--extension", pluginDirs: "--plugin-dir", hooks: "--hook" }[key];
+    const argv = argvUnderTest({ [key]: "/a/one,/a/two" });
+    const values = argv.filter((x, i) => argv[i - 1] === flag);
+    assert.deepEqual(values, ["/a/one,/a/two"], `${key} must not be comma-split`);
+  }
+});

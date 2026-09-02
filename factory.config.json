@@ -194,9 +194,16 @@
         "noRules": true,
         "approvalMode": "yolo",
         "autoApprove": true,
-        "configFiles": "${FACTORY_ROOT}/omp/base.overlay.yml,${FACTORY_ROOT}/omp/engineer.policy.yml",
-        "extensions": "${FACTORY_ROOT}/omp/plugins/paperclip-goal-guard",
-        "hooks": "${FACTORY_ROOT}/omp/worktree-guard.js",
+        "configFiles": [
+          "${FACTORY_ROOT}/omp/base.overlay.yml",
+          "${FACTORY_ROOT}/omp/engineer.policy.yml"
+        ],
+        "extensions": [
+          "${FACTORY_ROOT}/omp/plugins/paperclip-goal-guard"
+        ],
+        "hooks": [
+          "${FACTORY_ROOT}/omp/worktree-guard.js"
+        ],
         "skills": "using-superpowers,test-driven-development,systematic-debugging,verification-before-completion,dispatching-parallel-agents,receiving-code-review",
         "env": {
           "$comment": [
@@ -284,8 +291,13 @@
         "noRules": true,
         "approvalMode": "yolo",
         "autoApprove": true,
-        "configFiles": "${FACTORY_ROOT}/omp/base.overlay.yml,${FACTORY_ROOT}/omp/reviewer.policy.yml",
-        "extensions": "${FACTORY_ROOT}/omp/plugins/paperclip-review",
+        "configFiles": [
+          "${FACTORY_ROOT}/omp/base.overlay.yml",
+          "${FACTORY_ROOT}/omp/reviewer.policy.yml"
+        ],
+        "extensions": [
+          "${FACTORY_ROOT}/omp/plugins/paperclip-review"
+        ],
         "tools": "read,grep,glob,lsp,todo,paperclip_review",
         "skills": "using-superpowers,verification-before-completion,systematic-debugging,anti-narrowness",
         "env": {
