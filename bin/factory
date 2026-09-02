@@ -6,6 +6,7 @@
 //   factory diff                            desired vs live, semantically
 //   factory plan                            the actions that would close the gap, + hash
 //   factory apply --plan-hash <hash>        execute exactly that plan
+//                     [--relocate]          ... and accept moving the factory here
 //   factory rollback --receipt <id>         restore an apply's pre-state and verify
 //   factory materialize --check|--apply     runtime profile templates -> profile roots
 //   factory preflight <issue>               every gate that must hold before dispatch
@@ -26,6 +27,7 @@ const { PaperclipApi } = require("../lib/api");
 const { buildPlan, snapshot } = require("../lib/plan");
 const { applyPlan, rollback } = require("../lib/apply");
 const receipts = require("../lib/receipts");
+const { inspectServerIdentity } = require("../lib/server-identity");
 const { FactoryError, canonical } = require("../lib/util");
 
 const C = {
@@ -104,17 +106,31 @@ async function cmdStatus(cfg, args) {
   const pins = checkPins(cfg);
   const plan = await buildPlan(api, cfg, snap);
 
+  // WHICH SERVER IS THIS? Pins compare package versions and drift compares
+  // declared state; neither can tell you that the process answering these
+  // reads was launched from a different tree at a different commit. On
+  // 2026-09-02 that condition held for a full day while every other line of
+  // this report was green. Adapter plugins load at server start, so it decides
+  // which code executes a dispatch.
+  const identity = inspectServerIdentity({ root: cfg._root, health });
+
   if (args.flags.json) {
     console.log(JSON.stringify({
       health: { status: health.status, version: health.version },
+      serverIdentity: { ok: identity.ok, checks: identity.checks },
       pins, drift: plan.actions.map((a) => ({ id: a.id, what: a.what })), planHash: plan.planHash,
     }, null, 2));
-    return plan.actions.length ? 1 : 0;
+    return plan.actions.length || !identity.ok ? 1 : 0;
   }
 
   console.log(C.bold("api"));
   console.log(`  ${api.baseUrl}  ${C.green(health.status)}  v${health.version}`);
   console.log(`  deployment ${health.deploymentMode}  backup ${health.databaseBackup?.status ?? "?"} (${health.databaseBackup?.latestBackup?.name ?? "none"})`);
+
+  console.log(C.bold("\nserver identity") + C.dim("  (does the running server come from this tree?)"));
+  for (const c of identity.checks) {
+    console.log(`  ${c.ok ? C.green("ok  ") : C.red("FAIL")} ${c.name}${c.detail ? C.dim(`  ${c.detail}`) : ""}`);
+  }
 
   console.log(C.bold("\npins"));
   for (const p of pins) {
@@ -141,7 +157,12 @@ async function cmdStatus(cfg, args) {
 
   const bad = pins.filter((p) => !p.ok).length;
   if (bad) console.log(C.red(`\n${bad} pin(s) drifted.`));
-  return plan.actions.length || bad ? 1 : 0;
+  if (!identity.ok) {
+    console.log(C.red(
+      `\n${identity.checks.filter((c) => !c.ok).length} server identity check(s) failed — ` +
+      `reads are trustworthy, dispatches are not.`));
+  }
+  return plan.actions.length || bad || !identity.ok ? 1 : 0;
 }
 
 function renderValue(v) {
@@ -198,9 +219,10 @@ async function cmdApply(cfg, args) {
   }
   const plan = await buildPlan(api, cfg);
   const dryRun = Boolean(args.flags["dry-run"]);
+  const allowRelocate = Boolean(args.flags.relocate);
   let stored;
   try {
-    stored = await applyPlan(api, cfg, plan, { expectedHash: expected, dryRun });
+    stored = await applyPlan(api, cfg, plan, { expectedHash: expected, dryRun, allowRelocate });
   } catch (err) {
     console.error(C.red(`\n${err.message}`));
     if (err.details) console.error(C.dim(JSON.stringify(err.details, null, 2)));
