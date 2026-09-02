@@ -14,10 +14,14 @@
 // MEASURED 2026-09-02: `serverInfo.git` is evaluated per REQUEST, not captured
 // at process start — a server launched at 568da81 reported 467b525 once two
 // later commits landed in its tree. So a sha comparison proves "same tree",
-// not "same vintage", and staleness in time needs the separate
-// processStartedAt-vs-HEAD-commit-time gate. The tests below hold that
-// distinction, because a suite that conflated them would pass while the gate
-// it describes did nothing.
+// not "same vintage", and staleness in time needs its own gate. The tests
+// below hold that distinction, because a suite that conflated them would pass
+// while the gate it describes did nothing.
+//
+// That staleness gate is keyed on WHAT LOADS AT BOOT — the server package and
+// the adapter plugin registry — not on the repo HEAD. Most commits here touch
+// the CLI and change nothing about a running server; a gate keyed on HEAD
+// would fail after every commit, which is how a check stops being read.
 //
 // These gates are pure over injected observations so the failure modes can be
 // asserted without a live server. Every one fails CLOSED: an observation that
@@ -34,7 +38,8 @@ const ROOT = "/home/lucascoh/factory-stack";
 const SHA = "568da813e9c0874deea91005efa3163b9d118b9f";
 
 const STARTED = "2026-09-02T20:03:54.285Z";
-const COMMITTED = "2026-09-02T19:00:00.000Z";   // before STARTED: not stale
+// A boot input last changed BEFORE the server started: not stale.
+const FRESH = { at: "2026-09-02T19:00:00.000Z", source: "@paperclipai/server" };
 
 const health = (over = {}) => ({
   status: "ok",
@@ -58,7 +63,7 @@ const named = (result, fragment) =>
 
 test("a server built from this repo's HEAD, alone, passes every gate", () => {
   const r = checkServerIdentity({
-    root: ROOT, health: health(), headSha: SHA, headCommittedAt: COMMITTED, processes: [proc(ROOT)],
+    root: ROOT, health: health(), headSha: SHA, bootInput: FRESH, processes: [proc(ROOT)],
   });
   assert.equal(r.ok, true);
   assert.equal(r.checks.filter((c) => !c.ok).length, 0);
@@ -69,7 +74,7 @@ test("a server running a different commit is reported, with both shas named", ()
   const r = checkServerIdentity({
     root: ROOT,
     health: health({ git: { fullSha: stale, shortSha: "4e7c1a6", branchName: "feat/factory-finalization" } }),
-    headSha: SHA, headCommittedAt: COMMITTED,
+    headSha: SHA, bootInput: FRESH,
     processes: [proc(ROOT)],
   });
   assert.equal(r.ok, false);
@@ -86,7 +91,7 @@ test("a server launched from another tree is caught even when the commit matches
   // commit while only one of them has the adapter plugins you just edited.
   const other = "/home/lucascoh/worktrees/factory-context-arch";
   const r = checkServerIdentity({
-    root: ROOT, health: health(), headSha: SHA, headCommittedAt: COMMITTED, processes: [proc(other)],
+    root: ROOT, health: health(), headSha: SHA, bootInput: FRESH, processes: [proc(other)],
   });
   assert.equal(r.ok, false);
   assert.equal(named(r, "serves this repo").ok, true, "the commit gate is independent and still passes");
@@ -97,7 +102,7 @@ test("a server launched from another tree is caught even when the commit matches
 
 test("two servers sharing the instance fail the single-owner gate", () => {
   const r = checkServerIdentity({
-    root: ROOT, health: health(), headSha: SHA, headCommittedAt: COMMITTED,
+    root: ROOT, health: health(), headSha: SHA, bootInput: FRESH,
     processes: [proc(ROOT, 620282), proc("/home/lucascoh/worktrees/factory-finalization", 112128)],
   });
   assert.equal(r.ok, false);
@@ -109,7 +114,7 @@ test("two servers sharing the instance fail the single-owner gate", () => {
 
 test("no server at all fails the single-owner gate rather than passing vacuously", () => {
   const r = checkServerIdentity({
-    root: ROOT, health: health(), headSha: SHA, headCommittedAt: COMMITTED, processes: [],
+    root: ROOT, health: health(), headSha: SHA, bootInput: FRESH, processes: [],
   });
   assert.equal(r.ok, false);
   assert.equal(named(r, "exactly one").ok, false);
@@ -119,7 +124,7 @@ test("no server at all fails the single-owner gate rather than passing vacuously
 
 test("a health payload without git identity fails closed", () => {
   const r = checkServerIdentity({
-    root: ROOT, health: { status: "ok", serverInfo: {} }, headSha: SHA, headCommittedAt: COMMITTED, processes: [proc(ROOT)],
+    root: ROOT, health: { status: "ok", serverInfo: {} }, headSha: SHA, bootInput: FRESH, processes: [proc(ROOT)],
   });
   assert.equal(r.ok, false);
   assert.equal(named(r, "serves this repo").ok, false);
@@ -128,7 +133,7 @@ test("a health payload without git identity fails closed", () => {
 test("a server reporting git.available false fails closed", () => {
   const r = checkServerIdentity({
     root: ROOT, health: health({ git: { available: false, fullSha: null } }),
-    headSha: SHA, headCommittedAt: COMMITTED, processes: [proc(ROOT)],
+    headSha: SHA, bootInput: FRESH, processes: [proc(ROOT)],
   });
   assert.equal(r.ok, false);
   assert.equal(named(r, "serves this repo").ok, false);
@@ -136,7 +141,7 @@ test("a server reporting git.available false fails closed", () => {
 
 test("an unreadable local HEAD fails closed instead of skipping the comparison", () => {
   const r = checkServerIdentity({
-    root: ROOT, health: health(), headSha: null, headCommittedAt: COMMITTED, processes: [proc(ROOT)],
+    root: ROOT, health: health(), headSha: null, bootInput: FRESH, processes: [proc(ROOT)],
   });
   assert.equal(r.ok, false);
   assert.equal(named(r, "serves this repo").ok, false);
@@ -144,7 +149,7 @@ test("an unreadable local HEAD fails closed instead of skipping the comparison",
 
 test("an unreadable process table fails both process gates closed", () => {
   const r = checkServerIdentity({
-    root: ROOT, health: health(), headSha: SHA, headCommittedAt: COMMITTED, processes: null,
+    root: ROOT, health: health(), headSha: SHA, bootInput: FRESH, processes: null,
   });
   assert.equal(r.ok, false);
   assert.equal(named(r, "binary").ok, false);
@@ -159,7 +164,7 @@ test("a dirty server tree is noted but does not fail the gate", () => {
   const r = checkServerIdentity({
     root: ROOT,
     health: health({ git: { localChanges: { available: true, hasLocalChanges: true, unstagedFileCount: 3 } } }),
-    headSha: SHA, headCommittedAt: COMMITTED, processes: [proc(ROOT)],
+    headSha: SHA, bootInput: FRESH, processes: [proc(ROOT)],
   });
   assert.equal(r.ok, true);
   const c = named(r, "serves this repo");
@@ -169,46 +174,57 @@ test("a dirty server tree is noted but does not fail the gate", () => {
 
 // ---- staleness in time: the gate that describes the real incident ----
 
-test("a server that started BEFORE the current HEAD was committed is stale", () => {
+test("a server older than the adapter registry it loaded is stale", () => {
   const r = checkServerIdentity({
     root: ROOT,
     health: health(),                                  // started 20:03:54Z
     headSha: SHA,
-    headCommittedAt: "2026-09-02T20:44:00.000Z",       // committed 40 min later
+    bootInput: { at: "2026-09-02T20:44:00.000Z", source: "adapter plugin registry" },
     processes: [proc(ROOT)],
   });
   assert.equal(r.ok, false);
   const c = named(r, "started after");
   assert.equal(c.ok, false);
   assert.match(c.detail, /40 minute/);
+  assert.match(c.detail, /adapter plugin registry/, "name what changed, or it is unactionable");
   assert.match(c.detail, /paperclip-start\.sh/);
   // The sha gate must NOT fire here: same tree, and it is read per request.
   assert.equal(named(r, "serves this repo").ok, true,
     "sha equality cannot detect staleness in time — that is why this gate exists");
 });
 
-test("a server started after the last commit is not stale", () => {
+test("a server started after its boot inputs last changed is not stale", () => {
   const r = checkServerIdentity({
-    root: ROOT, health: health(), headSha: SHA,
-    headCommittedAt: "2026-09-02T19:00:00.000Z",
+    root: ROOT, health: health(), headSha: SHA, bootInput: FRESH,
     processes: [proc(ROOT)],
   });
   assert.equal(named(r, "started after").ok, true);
+});
+
+test("an ordinary commit to the CLI does not make the server stale", () => {
+  // The calibration decision, asserted. lib/ changes do not reach a running
+  // server, so a gate that failed on them would fail after every commit and
+  // stop being read. Only a changed BOOT INPUT counts.
+  const r = checkServerIdentity({
+    root: ROOT, health: health(), headSha: SHA, bootInput: FRESH,
+    processes: [proc(ROOT)],
+  });
+  assert.equal(r.ok, true, "committing CLI code must not raise a restart alarm");
 });
 
 test("a missing processStartedAt fails the staleness gate closed", () => {
   const h = health();
   delete h.serverInfo.processStartedAt;
   const r = checkServerIdentity({
-    root: ROOT, health: h, headSha: SHA, headCommittedAt: COMMITTED, processes: [proc(ROOT)],
+    root: ROOT, health: h, headSha: SHA, bootInput: FRESH, processes: [proc(ROOT)],
   });
   assert.equal(r.ok, false);
   assert.equal(named(r, "started after").ok, false);
 });
 
-test("an unreadable HEAD commit time fails the staleness gate closed", () => {
+test("unreadable boot inputs fail the staleness gate closed", () => {
   const r = checkServerIdentity({
-    root: ROOT, health: health(), headSha: SHA, headCommittedAt: null, processes: [proc(ROOT)],
+    root: ROOT, health: health(), headSha: SHA, bootInput: null, processes: [proc(ROOT)],
   });
   assert.equal(r.ok, false);
   assert.equal(named(r, "started after").ok, false);
