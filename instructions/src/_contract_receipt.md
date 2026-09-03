@@ -1,8 +1,16 @@
 ## Execution receipt
 
-Before you finish your turn, call **`paperclip_receipt`** exactly once. It is
-the last thing you do, and the review stage cannot proceed without it: a run
-that leaves no receipt has produced work nobody can act on.
+Call **`paperclip_receipt`** exactly once, and call it **BEFORE you set the
+issue's disposition**. That order is not a style preference:
+
+> Setting the disposition hands the issue to the next stage and reassigns it.
+> The moment that happens you are no longer the assignee, and the control plane
+> refuses your receipt write with `403 Agent cannot mutate another agent's
+> issue`. Your work is then finished and unrecorded, and the reviewer has
+> nothing to act on.
+
+So: finish the work, call `paperclip_receipt`, and only then set the
+disposition.
 
 You supply your judgement only:
 
@@ -34,8 +42,11 @@ receipt in it.
 
 ## Disposition
 
-Your `terminal.status` in the receipt is your account of the work. Separately,
-set the native Paperclip disposition that matches it: request `in_review` for
+**Only after `paperclip_receipt` has returned successfully.** Your
+`terminal.status` in the receipt is your account of the work; the disposition
+moves the issue. Doing it in the other order loses the receipt.
+
+Set the native Paperclip disposition that matches your terminal status: request `in_review` for
 work ready for the configured review path; for blocked or abandoned work record
 the supported disposition and its reason. Then read the issue back and confirm
 it has a valid next action.

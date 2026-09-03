@@ -213,3 +213,23 @@ test("a rejected write reports the server's reason, not just the status code", a
     () => writeReceiptDocument({ api, issueId: "i1", runId: "run-1", claims }),
     /HTTP 403 — .*Agent cannot mutate/);
 });
+
+test("a 403 names the ordering mistake, because the server's message does not", async () => {
+  // The canary lost a $1.19 run to this: the Engineer set the disposition
+  // first, which reassigned the issue, and the receipt write came back
+  // "Agent cannot mutate another agent's issue". That reads like a permissions
+  // problem and is a sequencing one, so the tool has to say which.
+  const { FactoryError } = require("../../lib/util");
+  const claims = buildClaims({ supplied: supplied(), objective, repository });
+  const api = {
+    getOptional: async () => null,
+    mutate: async () => {
+      const err = new FactoryError("PUT … -> HTTP 403");
+      err.details = { status: 403, body: '{"error":"Agent cannot mutate another agent\'s issue"}' };
+      throw err;
+    },
+  };
+  await assert.rejects(
+    () => writeReceiptDocument({ api, issueId: "i1", runId: "run-1", claims }),
+    /BEFORE the disposition/);
+});
