@@ -261,3 +261,62 @@ test("independence collapses product suffixes, because one lab's two products ar
   assert.equal(modelVendor("openrouter/anthropic/claude-opus-5"), "anthropic",
     "a routing prefix names the broker, not the author of the weights");
 });
+
+// ── the branch the environment never carried ───────────────────────────────
+//
+// PAPERCLIP_WORKSPACE_BRANCH arrives empty on every run. Paperclip's
+// contextSnapshot supplies `paperclipWorkspace.branchName`;
+// @zhafron/paperclip-omp-adapter reads `workspace.branch`
+// (dist/server/execute.js:327), which is undefined, and exports "". Every
+// sibling key it reads matches — cwd, source, strategy, workspaceId, repoUrl,
+// repoRef, worktreePath, agentHome — and only this one does not.
+//
+// submitReview compares the receipt's branch to this value, so the effect was
+// total: every review refused with "ExecutionReceiptV1 does not match the
+// current objective, run workspace, or live change set", a message naming three
+// candidates and not the one that was wrong. Two canary runs died on it.
+
+const REVIEW_ENV = {
+  PAPERCLIP_TASK_ID: "issue-1",
+  PAPERCLIP_RUN_ID: "run-1",
+  PAPERCLIP_API_URL: "http://127.0.0.1:3100",
+  PAPERCLIP_API_KEY: "tok",
+  PAPERCLIP_WORKSPACE_WORKTREE_PATH: "/wt",
+};
+
+test("an empty PAPERCLIP_WORKSPACE_BRANCH is derived from the worktree", () => {
+  const { deriveReviewContext } = require("../../lib/review");
+  const calls = [];
+  const exec = (file, args) => {
+    calls.push([file, ...args]);
+    return { status: 0, stdout: "paperclip/ZEI-2\n" };
+  };
+  const ctx = deriveReviewContext({ ...REVIEW_ENV, PAPERCLIP_WORKSPACE_BRANCH: "" }, { exec });
+  assert.equal(ctx.branch, "paperclip/ZEI-2");
+  assert.deepEqual(calls[0], ["git", "-C", "/wt", "rev-parse", "--abbrev-ref", "HEAD"],
+    "the branch must come from the worktree actually checked out");
+});
+
+test("a declared branch still wins — deriving is the fallback, not the rule", () => {
+  const { deriveReviewContext } = require("../../lib/review");
+  const exec = () => { throw new Error("must not shell out when the env carries the branch"); };
+  const ctx = deriveReviewContext({ ...REVIEW_ENV, PAPERCLIP_WORKSPACE_BRANCH: "declared/branch" }, { exec });
+  assert.equal(ctx.branch, "declared/branch");
+});
+
+test("a detached HEAD names no branch, and must not be compared as one", () => {
+  const { deriveReviewContext } = require("../../lib/review");
+  const exec = () => ({ status: 0, stdout: "HEAD\n" });
+  assert.equal(deriveReviewContext({ ...REVIEW_ENV }, { exec }).branch, null);
+});
+
+test("a failed git call yields null rather than a fabricated branch", () => {
+  const { deriveReviewContext } = require("../../lib/review");
+  const exec = () => ({ status: 128, stdout: "", stderr: "not a git repository" });
+  assert.equal(deriveReviewContext({ ...REVIEW_ENV }, { exec }).branch, null);
+});
+
+test("with no exec injected the branch is null, not a crash", () => {
+  const { deriveReviewContext } = require("../../lib/review");
+  assert.equal(deriveReviewContext({ ...REVIEW_ENV }).branch, null);
+});
