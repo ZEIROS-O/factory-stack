@@ -226,3 +226,47 @@ test("the reviewer policy overlay withholds subagents entirely", () => {
   assert.match(REVIEWER_POLICY, /maxConcurrency:\s*1\b/);
   assert.match(REVIEWER_POLICY, /maxRuntimeMs:\s*300000\b/);
 });
+
+// ── the verifier must judge with the toolchain the work used ───────────────
+//
+// The sandbox sets a fixed minimal PATH, which is right for isolation and wrong
+// for judgement. On a version-managed machine `node` there resolves to the
+// distro build — /usr/bin/node v12.22.9 here — which rejects `--test` outright,
+// a flag the Engineer's own v22 accepted with exit 0. Every Node-based
+// acceptance criterion failed inside the verifier for a reason unrelated to the
+// change under review, and the review could only ever report "did not run".
+//
+// A verifier running the command under a different interpreter is not checking
+// the claim; it is checking a different claim.
+
+const VERIFIER = fs.readFileSync(path.join(REPO, "ops/omp-verify-bwrap.sh"), "utf8");
+
+test("the verifier prepends the caller's interpreter directory to the sandbox PATH", () => {
+  assert.match(VERIFIER, /VERIFY_PATH=/, "the PATH must be computed, not a fixed literal");
+  assert.match(VERIFIER, /--setenv PATH "\$VERIFY_PATH"/,
+    "the computed PATH must be the one handed to bwrap");
+  assert.match(VERIFIER, /for interp in node python3 python ruby/,
+    "the interpreters an acceptance command is likely to name");
+});
+
+test("the computed PATH still ends in the minimal system default", () => {
+  // Prepending must not DISCARD the system path: coreutils live there, and an
+  // acceptance command is free to use them.
+  assert.match(VERIFIER,
+    /VERIFY_PATH="\/usr\/local\/sbin:\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/sbin:\/bin"/,
+    "the system default must remain the base of the computed PATH");
+});
+
+test("a directory is prepended only once", () => {
+  // A caller whose interpreters share one directory must not multiply it.
+  assert.match(VERIFIER, /case ":\$VERIFY_PATH:" in/,
+    "membership must be tested before prepending");
+});
+
+test("PATH widening does not touch the isolation that matters", () => {
+  // The root is already read-only, so the binary was readable either way; what
+  // changed is only which of two readable binaries runs. These must survive.
+  assert.match(VERIFIER, /--clearenv/, "the environment is still cleared");
+  assert.match(VERIFIER, /--ro-bind \/ \//, "the root is still read-only");
+  assert.match(VERIFIER, /--unshare-net/, "the verifier still has no network");
+});

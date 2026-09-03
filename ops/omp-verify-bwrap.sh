@@ -85,6 +85,35 @@ WT_REAL="$(readlink -f "$WT")"
 # resolution depends on it, and the read-only root already denies writes to it.
 REAL_HOME="${HOME:-/home/$(id -un)}"
 
+# THE INTERPRETER MUST BE THE ONE THE WORK WAS DONE WITH.
+#
+# The sandbox sets a fixed minimal PATH, which is right for isolation and wrong
+# for judgement: on a machine whose toolchain is version-managed, `node`
+# resolves to the distro build. Here that is /usr/bin/node v12.22.9, which
+# rejects `--test` outright — a flag the Engineer's own v22 accepted with exit
+# 0. Every Node-based acceptance criterion therefore failed inside the verifier
+# for a reason that had nothing to do with the change under review.
+#
+# A verifier that runs the acceptance command under a different interpreter is
+# not checking the claim; it is checking a different claim. So the directory of
+# the caller's resolved interpreter is PREPENDED to the sandbox PATH — one
+# directory, captured before --clearenv, and only when it really holds an
+# executable of that name.
+#
+# This widens no boundary that matters. The root is already --ro-bind / /, so
+# the binary was readable either way; what changes is only which of two
+# readable binaries gets run. Writes, network and credentials are unaffected.
+VERIFY_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+for interp in node python3 python ruby; do
+  resolved="$(command -v "$interp" 2>/dev/null || true)"
+  [ -n "$resolved" ] || continue
+  dir="$(dirname -- "$(readlink -f "$resolved")")"
+  case ":$VERIFY_PATH:" in
+    *":$dir:"*) ;;
+    *) VERIFY_PATH="$dir:$VERIFY_PATH" ;;
+  esac
+done
+
 # CONFINE THE cwd. `cwd` comes from the objective envelope, which is hash-bound,
 # but a relative path is still resolved here and must not be able to walk out of
 # the worktree — including through a symlink planted inside it.
@@ -110,7 +139,7 @@ exec bwrap \
   --tmpfs "$REAL_HOME/.cache" \
   --ro-bind "$WT_REAL" "$WT_REAL" \
   --clearenv \
-  --setenv PATH "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  --setenv PATH "$VERIFY_PATH" \
   --setenv HOME "$REAL_HOME" \
   --setenv TMPDIR /tmp \
   --setenv LANG "${LANG:-C.UTF-8}" \
