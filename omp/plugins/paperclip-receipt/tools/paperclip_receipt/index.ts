@@ -36,7 +36,7 @@
 // worktree, hand both to the library.
 
 import { createRequire } from "node:module";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { CustomToolFactory } from "@oh-my-pi/pi-coding-agent";
@@ -53,7 +53,7 @@ if (!existsSync(path.join(FACTORY_ROOT, "lib/receipt-submit.js"))) {
   );
 }
 
-const { buildClaims, writeReceiptDocument } = require_(path.join(FACTORY_ROOT, "lib/receipt-submit.js"));
+const { buildClaims, deriveChecks, writeReceiptDocument } = require_(path.join(FACTORY_ROOT, "lib/receipt-submit.js"));
 const { PaperclipApi } = require_(path.join(FACTORY_ROOT, "lib/api.js"));
 const { resolveObjectiveForIssue } = require_(path.join(FACTORY_ROOT, "lib/objective.js"));
 const { computeChangeSet, computeDiffHash } = require_(path.join(FACTORY_ROOT, "lib/promote.js"));
@@ -64,9 +64,10 @@ const factory: CustomToolFactory = pi => ({
   description:
     "Record what you did on the CURRENT issue. Call this ONCE, as the last thing you do, before you " +
     "finish your turn — the review stage cannot proceed without it. Supply only your judgement: what " +
-    "you observed, what you concluded, what remains unresolved, any warnings, the checks you ran, and " +
-    "how you are leaving the issue. The tool derives the objective binding, the commits, the diff " +
-    "hash and the per-file digests from the worktree itself, so you never transcribe a hash. If your " +
+    "you observed, what you concluded, what remains unresolved, any warnings, and how you are leaving " +
+    "the issue. The tool derives everything else from the worktree and the objective — the commits, " +
+    "the diff hash, the per-file digests, and the acceptance checks, which it RUNS ITSELF and records " +
+    "with their real exit codes and output hashes. You never transcribe a hash or a result. If your " +
     "submission is malformed the tool tells you why and you can call it again.",
 
   parameters: pi.zod.object({
@@ -82,16 +83,6 @@ const factory: CustomToolFactory = pi => ({
     warnings: pi.zod
       .array(pi.zod.string())
       .describe("Anything the reviewer or the operator should know that is not a failure."),
-    checks: pi.zod
-      .array(
-        pi.zod.object({
-          name: pi.zod.string().describe("What was checked"),
-          command: pi.zod.string().describe("The command you actually ran, verbatim"),
-          exitCode: pi.zod.number().describe("Its real exit code"),
-          passed: pi.zod.boolean(),
-        }),
-      )
-      .describe("The checks you ran yourself. Report them honestly; the reviewer re-runs the acceptance commands independently."),
     terminal: pi.zod
       .object({
         status: pi.zod.enum(["ready_for_review", "blocked", "abandoned"]),
@@ -137,7 +128,13 @@ const factory: CustomToolFactory = pi => ({
       paths: changeSet.paths,
     };
 
-    const claims = buildClaims({ supplied: params, objective, repository });
+    // THE CHECKS ARE RUN HERE, NOT REPORTED. ExecutionReceiptV1 wants
+    // criterionId, argv, cwd, exitCode, stdoutHash and stderrHash — two of
+    // which are hashes of command output. Asking a model for those is asking
+    // it to transcribe evidence, so the tool executes the objective's own
+    // acceptance commands and records what actually happened.
+    const checks = deriveChecks({ objective, cwd: worktree, exec: spawnSync });
+    const claims = buildClaims({ supplied: params, objective, repository, checks });
     const { docPath, claimsHash } = await writeReceiptDocument({
       api, issueId: issue.id, runId: env.PAPERCLIP_RUN_ID ?? "", claims,
     });
@@ -151,6 +148,8 @@ const factory: CustomToolFactory = pi => ({
             `  document: ${docPath}\n` +
             `  claims hash: ${claimsHash}\n` +
             `  ${claims.repository.paths.length} changed path(s), head ${head.slice(0, 7)}\n` +
+            `  ${claims.checks.length} acceptance check(s) run: ` +
+            `${claims.checks.map((c: { criterionId: string; exitCode: number }) => `${c.criterionId} exit ${c.exitCode}`).join(", ") || "none declared"}\n` +
             `The review stage can now read your account of this run. You do not need to repeat any of ` +
             `it in your final message.`,
         },
