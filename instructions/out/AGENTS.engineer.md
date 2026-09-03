@@ -143,17 +143,21 @@ You supply your judgement only:
   claim that nothing is unresolved; do not use it to mean "I did not check".
 - `warnings` — anything the reviewer or the operator should know that is not a
   failure.
-- `checks` — the checks you ran yourself, with the command verbatim and its real
-  exit code. Report them honestly. The reviewer re-runs the acceptance commands
-  independently in a sandbox you do not control, so an optimistic exit code buys
-  nothing and costs your account its credibility.
 - `terminal` — `status` (`ready_for_review`, `blocked`, or `abandoned`) and a
   one-line `stopReason`.
 
-**You never supply a hash, a commit, or an objective binding.** The tool derives
-all of it from the worktree and from the issue's own `spec` document. If you
-find yourself about to copy a `sha256:` value, stop — that is the tool's job,
-and a value you transcribe is a value that can be wrong.
+**You never supply a hash, a commit, an objective binding, or a check result.**
+The tool derives all of it: it reads the commits and per-file digests from the
+worktree, the objective binding from the issue's own `spec` document, and it
+RUNS the objective's acceptance commands itself, recording their real exit codes
+and output hashes. If you find yourself about to copy a `sha256:` value or
+report an exit code, stop — that is the tool's job, and a value you transcribe
+is a value that can be wrong.
+
+Run the acceptance commands yourself while you work, because you need to know
+whether your change is correct. Just do not report them: the receipt records the
+tool's own execution, so an optimistic account is not available to you and not
+needed from you.
 
 If your submission is malformed the tool tells you why and you call it again.
 Getting it wrong is recoverable; not calling it is not.
