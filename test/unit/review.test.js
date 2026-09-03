@@ -320,3 +320,86 @@ test("with no exec injected the branch is null, not a crash", () => {
   const { deriveReviewContext } = require("../../lib/review");
   assert.equal(deriveReviewContext({ ...REVIEW_ENV }).branch, null);
 });
+
+// ── a check that never ran is not a verdict ────────────────────────────────
+//
+// exitCode null means no exit status was ever obtained — a spawn failure or a
+// signal — which is a different event from a test that ran and failed.
+// AssessmentV1 cannot express the difference (deterministicResults is
+// additionalProperties:false over criterionId/argv/exitCode/passed/outputHash),
+// so it lands as `passed: false` and reads as a finding about the code.
+//
+// On 2026-09-03 that cost $2.67: the verifier was non-executable, every check
+// recorded null, the stage returned changes_requested over the reviewer's own
+// PASS, and the Engineer correctly worked out there was nothing to fix and
+// filed ZEI-4 against the runner rather than fabricating a change.
+
+test("submitReview refuses when a deterministic check never ran", async () => {
+  const { submitReview } = require("../../lib/review");
+  const api = {
+    get: async () => { throw new Error("must refuse BEFORE any read-modify-write"); },
+    getOptional: async () => { throw new Error("must refuse BEFORE any read-modify-write"); },
+    mutate: async () => { throw new Error("must refuse BEFORE the first write"); },
+  };
+  const { buildExecutionReceipt } = require("../../lib/execution-receipt");
+  const { objectiveHash, objectiveCriteriaHash } = require("../../lib/contracts");
+  const objective = {
+    schemaVersion: "ObjectiveEnvelopeV1",
+    objectiveId: "ZEI-2", issueIdentifier: "ZEI-2", revision: 1,
+    objectiveHash: "sha256:" + "0".repeat(64), criteriaHash: "sha256:" + "0".repeat(64),
+    title: "canary", originalRequest: "fix add()",
+    repository: { path: "/tmp/repo", baseCommit: "1e274df", branch: "paperclip/ZEI-2" },
+    permissions: { filesystem: { read: ["."], write: ["src/add.js"] }, network: "provider_only", externalEffects: [] },
+    limits: { wallClockMinutes: 15, costCeilingUsd: 3, outerFactoryCostCeilingUsd: 5, maxReviewRounds: 2 },
+    verificationLevel: "important",
+    expectedOutputs: ["sums"], constraints: ["one file"],
+    acceptanceCriteria: [{
+      id: "ZEI-2-AC-01", requirement: "passes",
+      command: { argv: ["node", "--test", "test/add.test.js"], cwd: "." },
+    }],
+  };
+  objective.criteriaHash = objectiveCriteriaHash(objective);
+  objective.objectiveHash = objectiveHash(objective);
+  const claims = {
+    schemaVersion: "ExecutionReceiptClaimsV1",
+    objective: { objectiveId: "ZEI-2", revision: 1, objectiveHash: objective.objectiveHash, criteriaHash: objective.criteriaHash },
+    repository: {
+      baseCommit: "1e274df", headCommit: "1e274df", branch: "paperclip/ZEI-2",
+      diffHash: "sha256:" + "c".repeat(64),
+      paths: [{ path: "src/add.js", sha256: "sha256:" + "d".repeat(64) }],
+    },
+    checks: [], observations: ["o"], conclusions: ["c"],
+    unresolvedConditions: [], warnings: [],
+    terminal: { status: "ready_for_review", stopReason: "done" },
+  };
+  const receipt = buildExecutionReceipt({
+    run: {
+      id: "run-1", agentId: "eng", status: "succeeded",
+      startedAt: "2026-09-03T03:00:00.000Z", finishedAt: "2026-09-03T03:05:00.000Z",
+      usageJson: { costUsd: 1 }, resultJson: { stopReason: "completed" },
+      contextSnapshot: { issueId: "issue-1", paperclipWorkspace: { worktreePath: "/wt", branchName: "paperclip/ZEI-2" } },
+    },
+    issueId: "issue-1", objective, claims,
+  });
+  // A verifier that cannot be spawned: status null, error set.
+  const exec = () => ({ status: null, stdout: "", stderr: "", error: Object.assign(new Error("spawn EACCES"), { code: "EACCES" }) });
+
+  await assert.rejects(
+    () => submitReview({
+      env: { ...REVIEW_ENV, PAPERCLIP_WORKSPACE_BRANCH: "paperclip/ZEI-2" },
+      api, objective, exec, verifierPath: "/verify.sh",
+      reviewerModel: "google-antigravity/gemini-3.8-flash-high",
+      engineerModel: "anthropic/claude-opus-5",
+      summary: "looks right",
+      criteria: [{ criterionId: "ZEI-2-AC-01", verdict: "PASS", reasoning: "r", evidenceRefs: ["src/add.js"], uncertainty: null }],
+      changeSet: { baseCommit: "1e274df", headCommit: "1e274df", diffHash: "sha256:" + "c".repeat(64), changedPaths: ["src/add.js"], paths: [{ path: "src/add.js", sha256: "sha256:" + "d".repeat(64) }] },
+      executionReceipt: receipt, goalGate: null,
+    }),
+    (err) => {
+      assert.match(err.message, /never ran/, "name the condition");
+      assert.match(err.message, /harness fault, not a finding about the change/,
+        "the distinction is the whole point: a broken runner is not a verdict on the code");
+      assert.match(err.message, /ZEI-2-AC-01/, "name which check");
+      return true;
+    });
+});
