@@ -15,6 +15,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
 const {
   checkAgentLaunch, checkVerifier, checkHermesLaunch, checkReviewerDenial,
   agentLaunchGate, summarize, adapterArgv, run,
@@ -544,4 +546,52 @@ test("run() fails closed when the run history cannot be read", async () => {
   const rc = await run(cfg, { _: ["preflight", "Z-1"] },
     { connect: () => api, requireHealthy: async () => {}, C, exec });
   assert.equal(rc, 1, "an unreadable history has not shown the issue is clear of the condition");
+});
+
+// ── the verifier must be EXECUTABLE, not merely present ────────────────────
+//
+// ops/omp-verify-bwrap.sh was committed 100644 while every sibling ops script
+// is 100755. lib/review.js#runAcceptanceChecks executes it directly —
+// exec(verifierPath, args) — so the missing bit made every spawn fail with
+// EACCES and report exitCode null.
+//
+// The consequence was silent and total: `deterministicResults` recorded
+// `exitCode: null, passed: false` for every criterion, the derived disposition
+// correctly refused to approve over an unconfirmed check, and no review could
+// ever pass. The canary's assessment shows exactly that — a model PASS on
+// ZEI-2-AC-01 alongside a deterministic result that never ran.
+//
+// The gate did not catch it because it probed `bash <path>`, which ignores the
+// executable bit, while the real caller executes the file. A gate that models
+// the launch more generously than the launch proves nothing — the same lesson
+// stringList already records for the adapter's list separator.
+
+test("the verifier gate executes the script the way review.js does", () => {
+  const C = { red: (s) => s, green: (s) => s, dim: (s) => s };
+  void C;
+  const seen = [];
+  const exec = (file, args) => { seen.push([file, args?.[0]]); return { status: 0, stdout: "", stderr: "" }; };
+  const verifierPath = path.resolve(__dirname, "../../ops/omp-verify-bwrap.sh");
+  checkVerifier({ verifierPath, exec });
+  assert.equal(seen[0][0], verifierPath,
+    "the probe must invoke the verifier itself, not `bash <path>`: only the direct form " +
+    "exercises the executable bit that runAcceptanceChecks depends on");
+});
+
+test("a verifier that is not executable fails the gate", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "verifier-"));
+  const p = path.join(dir, "omp-verify-bwrap.sh");
+  fs.writeFileSync(p, "#!/usr/bin/env bash\nexit 0\n");
+  fs.chmodSync(p, 0o644);
+  const g = checkVerifier({ verifierPath: p, exec: () => ({ error: Object.assign(new Error("spawn EACCES"), { code: "EACCES" }) }) });
+  assert.equal(g.ok, false);
+  assert.match(g.detail, /executable/i, "name the bit, so the fix is obvious");
+});
+
+test("the shipped verifier is executable", () => {
+  // The regression itself, asserted against the file that ships.
+  const p = path.resolve(__dirname, "../../ops/omp-verify-bwrap.sh");
+  assert.doesNotThrow(() => fs.accessSync(p, fs.constants.X_OK),
+    `${p} is not executable; lib/review.js executes it directly and every acceptance ` +
+    `check will report exitCode null`);
 });
